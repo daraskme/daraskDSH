@@ -57,3 +57,30 @@ dsh ask openai --model gpt-5-mini '短く要約して'
 サイドバーには残量が最も少ない枠と次のリセット日時（日本時間）が表示されます。各行にポインターを合わせるか、キーボードでフォーカスすると、取得できた他の枠も確認できます。「約」は CLI が残り時間を丸めて返す場合に表示されます。検索には OSS の DDGS と lxml を使い、X は Yahoo! リアルタイム検索の公開投稿と検索エンジンのインデックスを参照します。
 
 本番のユーザーサービスは `darask-dsh.service` と `darask-dsh-tunnel.service` です。Web の入口はループバックの 8789 番で、HTTP と WebSocket の双方で Cloudflare の署名と対象アプリ、期限を検証します。ローカル開発では `npm ci` と `uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt` で依存関係を復元できます。
+
+## ComfyUI
+
+Studio のサイドバーから **ComfyUI** を開くと、Ubuntu の GPU を使う公式ノードエディターを操作できます。Studio のチャットでは「青い陶器のカップを生成して、画像のリンクを返して」と頼めます。生成結果はエディターのジョブ履歴にも表示されます。
+
+手動で作ったグラフを AI と編集するときは、エディターのワークフロー一覧に名前を付けて保存し、チャットでその名前を指定してください。例えば「cup.json を読み、プロンプトを夕景に変えた別名のワークフローを保存して」と依頼できます。エディターの JSON はノードの位置や接続を含みます。実行用の API 形式はエディターからエクスポートするか、実行後のジョブから取得できます。
+
+| エージェント用ツール | 操作 |
+| --- | --- |
+| `comfyui_catalog` | インストール済みのチェックポイント、LoRA、ノードと入力仕様を調べる |
+| `comfyui_generate` | SD 1.x・SDXL 用チェックポイントで、文章から画像を生成する |
+| `comfyui_run` | 任意の API 形式のグラフをキューに登録する |
+| `comfyui_job` | 指定したジョブの進行状況、エラー、生成物のリンク、実行したグラフを取得する |
+| `comfyui_workflow` | エディターが使うワークフローを一覧・取得・保存する |
+
+この端末では ComfyUI v0.45.0 を `.runtime/ComfyUI` に置き、`darask-comfyui.service` で起動しています。既存の ComfyUI に接続する場合は、DSH と同じ端末で起動し、必要に応じて `DSH_COMFYUI_URL` にローカルの HTTP 接続先を設定します。既定値は `http://127.0.0.1:8188` です。Studio は `/comfy/` の HTTP と WebSocket に既存の認証を適用します。
+
+新しい Ubuntu 環境にこの構成を復元する例です。モデルと生成物はローカルに保存されます。
+
+```bash
+git clone --depth 1 --branch v0.45.0 https://github.com/Comfy-Org/ComfyUI .runtime/ComfyUI
+uv venv --python 3.12 .runtime/comfy-venv
+uv pip install --python .runtime/comfy-venv/bin/python --torch-backend=auto -r .runtime/ComfyUI/requirements.txt
+.runtime/comfy-venv/bin/python .runtime/ComfyUI/main.py --listen 127.0.0.1 --port 8188
+```
+
+標準の画像生成には `v1-5-pruned-emaonly.safetensors` を `.runtime/ComfyUI/models/checkpoints/` に配置します。別のチェックポイントはモデル名で指定できます。[モデル配布元](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/blob/main/v1-5-pruned-emaonly.safetensors) · [ComfyUI の API](https://docs.comfy.org/development/comfyui-server/comms_routes)

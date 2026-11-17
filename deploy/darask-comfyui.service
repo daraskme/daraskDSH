@@ -1,0 +1,13 @@
+[Unit]
+Description=Local ComfyUI for daraskDSH
+After=network.target
+
+[Service]
+WorkingDirectory=/mnt/6tb/daraskDSH/.runtime/ComfyUI
+ExecStart=/mnt/6tb/daraskDSH/.runtime/comfy-venv/bin/python main.py --listen 127.0.0.1 --port 8188 --disable-auto-launch
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

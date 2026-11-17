@@ -1,4 +1,6 @@
 - insert:
+    - id: darask-comfyui
+      name: ../plugins/comfyui/index.mjs
     - id: darask-cli-models
       name: ../agents/index.mjs
 - id: agent-default-model
