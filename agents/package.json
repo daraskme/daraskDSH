@@ -1,0 +1,8 @@
+{
+  "name": "darask-dsh-agents",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "peerDependencies": { "@deepseek-ai/dsh-llm": "0.2.2-rc.1" }
+}

@@ -1,0 +1,12 @@
+.ds-footer{width:100%;min-width:0;box-sizing:border-box;padding:2px 3px;color:var(--dsw-alias-label-primary)}
+.ds-quotas{margin:0 0 6px;display:grid;border-bottom:1px solid var(--dsw-alias-border-l3);padding-bottom:5px;font:11px/1.55 system-ui,sans-serif;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary)}
+.ds-quota{position:relative;display:grid;grid-template-columns:minmax(36px,1fr) 4em 7.7em;align-items:center;gap:5px}
+.ds-quota>span:nth-child(2),.ds-quota time{text-align:right}.ds-quota-detail{display:none;position:absolute;bottom:100%;left:0;z-index:10;background:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-primary);padding:7px;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;white-space:pre}
+.ds-quota:focus .ds-quota-detail,.ds-quota:hover .ds-quota-detail{display:block}
+.ds-actions{display:flex;align-items:center;gap:2px}.ds-actions button,.ds-save{background:transparent;color:inherit;border:0;border-radius:5px;padding:4px 6px;min-height:27px;font:inherit;cursor:pointer}.ds-actions .ds-settings{text-align:left;flex:1}.ds-actions button[aria-pressed=true],.ds-actions button:hover,.ds-save{background:var(--dsw-alias-interactive-bg-hover)}
+.ds-footer[data-wide=false]{padding:0}.ds-footer[data-wide=false] .ds-actions{flex-direction:column}
+.ds-options{padding:15px 20px;display:grid;align-content:start;gap:15px}.ds-options h2{margin:0;font-size:18px}.ds-options label{display:grid;gap:5px}.ds-options select,.ds-options input:not([type=checkbox]){box-sizing:border-box;padding:6px 8px;min-width:0;width:100%;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit}.ds-options .ds-check{display:flex;align-items:center}.ds-save{justify-self:start;padding-inline:16px}.ds-options small{color:var(--dsw-alias-label-secondary)}
+.ds-settings-panel{height:100%;min-height:300px;min-width:0;overflow:auto}
+:root[data-studio-mode=paper],:root[data-studio-mode=paper] body{--dsw-alias-bg-base:#f6efdc!important;--dsw-alias-bg-layer-1:#eee5d0!important;--dsw-alias-bg-layer-2:#e9dfc7!important;--dsw-alias-bg-layer-3:#f4ebd6!important;--dsw-alias-bg-overlay:#faf3e2!important;--dsw-alias-bg-module-platform:#eee5d0!important;--dsw-alias-label-primary:#3b3326!important;--dsw-alias-label-secondary:#6a604e!important;--dsw-alias-button-elevated-fill:#faf4e6!important;color-scheme:light}
+
+.ds-quota-head{font-size:10px;opacity:.85}.ds-quota-head span:last-child{text-align:right}

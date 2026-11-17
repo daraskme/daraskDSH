@@ -1,0 +1,3 @@
+- insert:
+    - id: darask-studio-controls
+      name: ../web/host.mjs

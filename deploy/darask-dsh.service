@@ -1,0 +1,16 @@
+[Unit]
+Description=DeepSeek Harness Studio with Cloudflare Access
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/mnt/6tb/daraskDSH
+EnvironmentFile=%h/.config/darask-dsh/studio.env
+Environment=PATH=/usr/lib/chatgpt/resources/cua_node/bin:%h/.local/bin:%h/.grok/bin:/usr/lib/chatgpt/resources:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/lib/chatgpt/resources/cua_node/bin/node /mnt/6tb/daraskDSH/deploy/studio.mjs
+Restart=on-failure
+RestartSec=3
+UMask=0077
+
+[Install]
+WantedBy=default.target

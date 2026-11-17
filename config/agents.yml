@@ -1,0 +1,39 @@
+- insert:
+    - id: darask-cli-models
+      name: ../agents/index.mjs
+- id: agent-default-model
+  config:
+    provider: !!js "process.env.DARASK_DSH_MODEL === 'openai' ? 'openai' : 'local-cli'"
+    model: !!js "process.env.DARASK_DSH_MODEL === 'openai' ? process.env.DARASK_OPT_MODEL : process.env.DARASK_DSH_MODEL || 'codex'"
+- id: subagent
+  config:
+    maxDepth: 4
+- id: subagent-model-selection-settings
+  config:
+    enabled: true
+    allowedModels:
+      - {provider: local-cli, model: devin-free}
+      - {provider: local-cli, model: devin}
+      - {provider: local-cli, model: muse}
+      - {provider: local-cli, model: grok}
+      - {provider: local-cli, model: cursor}
+      - {provider: local-cli, model: codex}
+      - {provider: local-cli, model: claude}
+- id: session-reference
+  config:
+    maxReferenceBytes: 8192
+- id: web
+  config: {searchProvider: ddgs, fetchProvider: http}
+- id: web-search-deepseek
+  disabled: true
+- id: web-deepseek-api
+  disabled: true
+- insert:
+    - id: darask-search
+      name: ../search/index.mjs
+- id: llm-pi-ai
+  config:
+    providers:
+      openai:
+        displayName: OpenAI API
+        apiKeyEnv: OPENAI_API_KEY

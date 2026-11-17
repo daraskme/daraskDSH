@@ -1,0 +1,13 @@
+- insert:
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+    - id: session-reference
+      name: '@deepseek-ai/dsh-session-reference'
+- id: tool-subagent
+  config:
+    provider: spawn
+    toolName: subagent
+    modelSelection: true
+    modelDiscovery: true
+- id: credentials
+  disabled: false

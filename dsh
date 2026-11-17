@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+base=$(dirname -- "$(readlink -f -- "$0")")
+node_bin=$(command -v node || true)
+if [[ -z "$node_bin" ]] || ! "$node_bin" -e 'const [major,minor]=process.versions.node.split(".").map(Number); process.exit(Number(major < 24 || (major === 24 && minor < 9)))'; then
+  node_bin=/usr/lib/chatgpt/resources/cua_node/bin/node
+fi
+if [[ ! -x "$node_bin" ]]; then echo 'Node.js >= 24.9 が必要です。' >&2; exit 1; fi
+export PATH="$(dirname "$node_bin"):$PATH"
+export DSH_HOME="${DSH_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/darask-dsh}"
+cli="$base/node_modules/@deepseek-ai/dsh/lib/bin.js"
+if [[ ${1:-} == --profile && $# -ge 2 ]]; then shift; fi
+case "${1:-web}" in
+  login)
+    if [[ ${2:-} == devin ]]; then exec "$("$node_bin" "$base/agents/locate.mjs" devin)" auth login; fi
+    if [[ ${2:-} != claude ]]; then echo "使い方: dsh login <claude|devin>" >&2; exit 2; fi
+    claude_bin=$("$node_bin" "$base/agents/locate.mjs" claude)
+    exec "$claude_bin" auth login --claudeai
+    ;;
+  ask)
+    if [[ $# -lt 3 ]]; then echo 'dsh ask <CLI|openai> [--model ID] [--effort LEVEL] [--fast] [--ultracode] "依頼内容"' >&2; exit 2; fi
+    case "$2" in muse|grok|cursor|codex|claude|devin-free|devin|openai) export DARASK_DSH_MODEL="$2";; *) echo "未登録のエージェント: $2" >&2; exit 2;; esac
+    shift 2
+    while [[ $# -gt 1 ]]; do
+      case "$1" in
+        --model) export DARASK_OPT_MODEL="$2"; shift 2;;
+        --effort) export DARASK_OPT_EFFORT="$2"; shift 2;;
+        --fast) export DARASK_OPT_FAST=1; shift;;
+        --ultracode) export DARASK_OPT_ULTRACODE=1; shift;;
+        *) echo "未対応のオプション: $1" >&2; exit 2;;
+      esac
+    done
+    if [[ $# -ne 1 ]]; then echo '依頼内容が必要です' >&2; exit 2; fi
+    if [[ "$DARASK_DSH_MODEL" == openai ]]; then
+      if [[ -z ${DARASK_OPT_MODEL:-} ]]; then echo 'OpenAI API のモデルを --model で指定してください' >&2; exit 2; fi
+      if [[ -n ${DARASK_OPT_EFFORT:-}${DARASK_OPT_FAST:-}${DARASK_OPT_ULTRACODE:-} ]]; then echo 'dsh ask openai は --model に対応しています' >&2; exit 2; fi
+    fi
+    set -- headless "$1"
+    ;;
+  -h|--help)
+    echo 'dsh web                         ブラウザーで起動'
+    echo 'dsh ask <親エージェント> "依頼"   ターミナルで実行'
+    echo 'dsh login claude                Claude Code の再ログイン'
+    echo
+    exec "$node_bin" "$cli" "$@"
+    ;;
+  -V|--version|plugin) exec "$node_bin" "$cli" "$@" ;;
+esac
+profile="${1:-web}"
+if [[ $# -gt 0 ]]; then shift; fi
+patches=()
+case "$profile" in
+  web) patches+=(--patch "$base/config/web.yml");;
+  headless|sdk|acp) patches+=(--patch "$base/config/headless.yml");;
+  *) exec "$node_bin" "$cli" "$profile" "$@";;
+esac
+exec "$node_bin" "$cli" "$profile" "${patches[@]}" --patch "$base/config/agents.yml" \
+  --patch "$base/node_modules/@deepseek-ai/dsh-experimental-session-search/cordis.patch.yml" "$@"
