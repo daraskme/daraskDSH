@@ -1,0 +1,1860 @@
+{
+  "id": "3675f45c-0ead-45cc-b93a-4a90fa5b05f1",
+  "revision": 0,
+  "last_node_id": 29,
+  "last_link_id": 53,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "GemmaDetailRegions",
+      "title": "Gemma · 元画像を解析",
+      "pos": [
+        30,
+        50
+      ],
+      "size": [
+        320,
+        170
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "regions_json",
+          "type": "STRING",
+          "links": [
+            1,
+            3
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "GemmaDetailRegions"
+      },
+      "widgets_values": [
+        "kanae_sources/video_1.png\nkanae_sources/video_9.png\nkanae_sources/video_25.5.png\nkanae_sources/video_17.5.png"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "SaveGemmaDetailCandidates",
+      "title": "Gemma · 全候補を個別PNGと座標JSONで保存",
+      "pos": [
+        30,
+        1070
+      ],
+      "size": [
+        330,
+        110
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "regions_json",
+          "type": "STRING",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "preview",
+          "type": "IMAGE",
+          "links": [
+            2
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "folder",
+          "type": "STRING",
+          "links": null,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SaveGemmaDetailCandidates"
+      },
+      "widgets_values": [
+        "氷渡香名江_カジュアル"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "PreviewImage",
+      "title": "Gemma · 部位別の候補",
+      "pos": [
+        405,
+        960
+      ],
+      "size": [
+        310,
+        330
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 4,
+      "type": "AnimaPrepareDetailRefs",
+      "title": "原寸の部位座標・補正",
+      "pos": [
+        405,
+        50
+      ],
+      "size": [
+        360,
+        250
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "regions_json",
+          "type": "STRING",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parts",
+          "type": "ANIMA_REF_PARTS",
+          "links": [
+            4,
+            6,
+            45
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "edit_reference",
+          "type": "IMAGE",
+          "links": null,
+          "slot_index": 1
+        },
+        {
+          "name": "detail_sheet",
+          "type": "IMAGE",
+          "links": [
+            8
+          ],
+          "slot_index": 2
+        },
+        {
+          "name": "appearance",
+          "type": "STRING",
+          "links": null,
+          "slot_index": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "AnimaPrepareDetailRefs"
+      },
+      "widgets_values": [
+        "{\n \"neck_trim\": null,\n \"gloves\": null,\n \"skirt\": null,\n \"figure\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   255,\n   106,\n   775,\n   1741\n  ],\n  \"description\": \"Printed off-white short-sleeve graphic tee layered over plum long sleeves, plaid shirt knotted around waist, pale lace overskirt over wide cropped blue jeans, white high-top sneakers.\"\n },\n \"face\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   416,\n   142,\n   671,\n   505\n  ],\n  \"description\": \"Loose wavy gray half-up hair with face-framing bangs, pale eyes.\"\n },\n \"eyes\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   454,\n   267,\n   638,\n   336\n  ],\n  \"description\": \"Pale olive eyes under parted bangs.\"\n },\n \"top\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   343,\n   409,\n   751,\n   795\n  ],\n  \"description\": \"Printed cream T-shirt over a wine-purple long-sleeve shirt.\"\n },\n \"chest_mark\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   448,\n   518,\n   634,\n   701\n  ],\n  \"description\": \"Dark round graphic on the chest with lettering above.\"\n },\n \"headphones\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   407,\n   430,\n   675,\n   551\n  ],\n  \"description\": \"Dark over-ear headphones around the neck.\"\n },\n \"waist\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   318,\n   772,\n   742,\n   1146\n  ],\n  \"description\": \"Burgundy plaid shirt tied at waist, sleeves hanging down.\"\n },\n \"hem\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   305,\n   1108,\n   654,\n   1369\n  ],\n  \"description\": \"Layer of white lace draped asymmetrically over the denim.\"\n },\n \"bottoms\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   386,\n   1308,\n   691,\n   1519\n  ],\n  \"description\": \"Wide blue cropped denim trouser legs.\"\n },\n \"shoes\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   427,\n   1524,\n   659,\n   1728\n  ],\n  \"description\": \"White lace-up high-top shoes.\"\n },\n \"hair_ornament\": null,\n \"earring\": null,\n \"hair_fastening\": {\n  \"file\": \"kanae_sources/video_17.5.png\",\n  \"box\": [\n   388,\n   202,\n   687,\n   470\n  ],\n  \"description\": \"Two swept-back sections of grey hair meet at the back in a twisted half-up style.\"\n },\n \"upper_body\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   314,\n   399,\n   768,\n   822\n  ],\n  \"description\": \"Black headphones, a beige graphic tee and long plum sleeves.\"\n },\n \"lower_body\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   268,\n   789,\n   745,\n   1722\n  ],\n  \"description\": \"Shirt tied at the hips, asymmetric white lace skirt over wide cropped denim and white high-top shoes.\"\n },\n \"clothing_detail\": {\n  \"file\": \"kanae_sources/video_1.png\",\n  \"box\": [\n   308,\n   745,\n   764,\n   1140\n  ],\n  \"description\": \"Burgundy plaid shirt knotted around the waist.\"\n },\n \"flowers\": null,\n \"cape_trim\": null\n}"
+      ]
+    },
+    {
+      "id": 5,
+      "type": "LoadImage",
+      "title": "衣装の基準画像",
+      "pos": [
+        30,
+        300
+      ],
+      "size": [
+        280,
+        330
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            5,
+            7
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "kanae_sources/video_1.png",
+        "image"
+      ]
+    },
+    {
+      "id": 6,
+      "type": "LoadImage",
+      "title": "四方向の構図・動画から採取",
+      "pos": [
+        30,
+        720
+      ],
+      "size": [
+        310,
+        250
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            12
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "kanae_sources/camera_layout.png",
+        "image"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "QwenDetailInputs",
+      "title": "元画像の細部を並べる",
+      "pos": [
+        825,
+        10
+      ],
+      "size": [
+        285,
+        110
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "parts",
+          "type": "ANIMA_REF_PARTS",
+          "link": 4
+        },
+        {
+          "name": "original",
+          "type": "IMAGE",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "costume_reference",
+          "type": "IMAGE",
+          "links": [
+            13,
+            26
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "macro_layout",
+          "type": "IMAGE",
+          "links": [
+            14,
+            25
+          ],
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "QwenDetailInputs"
+      },
+      "widgets_values": [
+        "eyes,headphones,chest_mark,waist,hem,shoes"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "QwenDetailInputs",
+      "title": "髪・上半身・下半身・装飾",
+      "pos": [
+        825,
+        210
+      ],
+      "size": [
+        285,
+        110
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "parts",
+          "type": "ANIMA_REF_PARTS",
+          "link": 6
+        },
+        {
+          "name": "original",
+          "type": "IMAGE",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "costume_reference",
+          "type": "IMAGE",
+          "links": null,
+          "slot_index": 0
+        },
+        {
+          "name": "macro_layout",
+          "type": "IMAGE",
+          "links": [
+            36
+          ],
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "QwenDetailInputs"
+      },
+      "widgets_values": [
+        "hair_fastening,upper_body,lower_body,clothing_detail"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "PreviewImage",
+      "title": "元資料の切り抜きを確認",
+      "pos": [
+        435,
+        370
+      ],
+      "size": [
+        305,
+        350
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 10,
+      "type": "UNETLoader",
+      "title": "Qwen Image 2.1",
+      "pos": [
+        830,
+        435
+      ],
+      "size": [
+        310,
+        95
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            9
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "UNETLoader"
+      },
+      "widgets_values": [
+        "qwen_image_2.1_int8_convrot.safetensors",
+        "default"
+      ]
+    },
+    {
+      "id": 11,
+      "type": "QwenImage21Cache",
+      "title": "参照をキャッシュ",
+      "pos": [
+        1200,
+        440
+      ],
+      "size": [
+        280,
+        90
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            15,
+            27,
+            38
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "QwenImage21Cache"
+      },
+      "widgets_values": [
+        "auto",
+        "default"
+      ]
+    },
+    {
+      "id": 12,
+      "type": "CLIPLoader",
+      "title": "Qwen3-VL",
+      "pos": [
+        830,
+        595
+      ],
+      "size": [
+        320,
+        108
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            10,
+            23,
+            34
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPLoader"
+      },
+      "widgets_values": [
+        "qwen3vl_8b_int8_convrot.safetensors",
+        "qwen_image",
+        "default"
+      ]
+    },
+    {
+      "id": 13,
+      "type": "VAELoader",
+      "title": "Qwen Image 2.1 VAE",
+      "pos": [
+        830,
+        780
+      ],
+      "size": [
+        320,
+        64
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            11,
+            20,
+            24,
+            32,
+            35,
+            43
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "qwen_image_2.1_vae_bf16.safetensors"
+      ]
+    },
+    {
+      "id": 14,
+      "type": "TextEncodeQwenImage21",
+      "title": "四方向図 · 指示",
+      "pos": [
+        1550,
+        0
+      ],
+      "size": [
+        365,
+        335
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 10
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 11
+        },
+        {
+          "name": "images.image_1",
+          "type": "IMAGE",
+          "link": 12
+        },
+        {
+          "name": "images.image_2",
+          "type": "IMAGE",
+          "link": 13
+        },
+        {
+          "name": "images.image_3",
+          "type": "IMAGE",
+          "link": 14
+        },
+        {
+          "name": "images.image_4",
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            16
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "links": [
+            17
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            18
+          ],
+          "slot_index": 2
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TextEncodeQwenImage21"
+      },
+      "widgets_values": [
+        "Produce a precise four-view character turnaround on white using image 1 as a STRICT pose and layout template. Keep exactly four full figures on a single horizontal row, one per slot with empty gutters, identical height, feet and head fully inside each slot. Left to right: front facing the viewer, exact side profile nose pointing LEFT, opposite side profile nose pointing RIGHT, back of head facing the viewer. Keep those exact camera rotations. Clean and illustrate the same outfit. All four show the same girl, same hair length, body proportions, identical clothes. Ash gray-brown hair with long face-framing bangs, pale olive eyes. Wear cream graphic T-shirt over long plum sleeves, charcoal headphones around neck, burgundy plaid shirt tied at the waist, asymmetrical white lace layer over blue wide-leg cropped jeans, white high-top sneakers; half-up wavy hair exactly as in the original video. Match original references. Clean anime game character reference illustration, even studio lighting, no labels, characters only.",
+        "",
+        0
+      ]
+    },
+    {
+      "id": 15,
+      "type": "KSampler",
+      "title": "四方向図 · Qwen 2.1",
+      "pos": [
+        1985,
+        0
+      ],
+      "size": [
+        300,
+        265
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 15
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 16
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 17
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 18
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            19
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        91941,
+        "fixed",
+        25,
+        1.0,
+        "euler",
+        "simple",
+        1.0
+      ]
+    },
+    {
+      "id": 16,
+      "type": "VAEDecode",
+      "title": "四方向図 · 画像",
+      "pos": [
+        2350,
+        0
+      ],
+      "size": [
+        230,
+        65
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 19
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 20
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            21,
+            22
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 17,
+      "type": "SaveImage",
+      "title": "四方向図 · 保存",
+      "pos": [
+        2660,
+        0
+      ],
+      "size": [
+        310,
+        330
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 21
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "Kanae/casual/views"
+      ]
+    },
+    {
+      "id": 18,
+      "type": "SplitQwenTurnaround",
+      "title": "正面・左向き・右向き・背面",
+      "pos": [
+        2350,
+        145
+      ],
+      "size": [
+        235,
+        100
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "sheet",
+          "type": "IMAGE",
+          "link": 22
+        }
+      ],
+      "outputs": [
+        {
+          "name": "front",
+          "type": "IMAGE",
+          "links": [
+            37,
+            47
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "left",
+          "type": "IMAGE",
+          "links": [
+            48
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "right",
+          "type": "IMAGE",
+          "links": [
+            49
+          ],
+          "slot_index": 2
+        },
+        {
+          "name": "back",
+          "type": "IMAGE",
+          "links": [
+            50
+          ],
+          "slot_index": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SplitQwenTurnaround"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 19,
+      "type": "TextEncodeQwenImage21",
+      "title": "装飾・瞳のアップ · 指示",
+      "pos": [
+        1550,
+        470
+      ],
+      "size": [
+        365,
+        335
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 23
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 24
+        },
+        {
+          "name": "images.image_1",
+          "type": "IMAGE",
+          "link": 25
+        },
+        {
+          "name": "images.image_2",
+          "type": "IMAGE",
+          "link": 26
+        },
+        {
+          "name": "images.image_3",
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            28
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "links": [
+            29
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            30
+          ],
+          "slot_index": 2
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TextEncodeQwenImage21"
+      },
+      "widgets_values": [
+        "Make a faithful anime production close-up detail sheet from image 1. Preserve the EXACT 3 columns and two rows, one original matching subject per tile, reading left-to-right then top-to-bottom. Magnify each detail within its own tile; preserve its color, orientation, outlines, fasteners, stitching and context. Keep closely cropped actual head or garment material as the backing. No full people, letters added, captions, diagrams or new jewelry. The additional image only provides context. The tiles depict, in order: eyes, headphones, chest mark, waist, hem, shoes. Small white bells are lily-of-the-valley with downward-facing scalloped edges where shown. Reproduce the source emblem as closely as possible. Do not decorate plain parts.",
+        "",
+        0
+      ]
+    },
+    {
+      "id": 20,
+      "type": "KSampler",
+      "title": "装飾・瞳のアップ · Qwen 2.1",
+      "pos": [
+        1985,
+        470
+      ],
+      "size": [
+        300,
+        265
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 27
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 28
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 29
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 30
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            31
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        91942,
+        "fixed",
+        25,
+        1.0,
+        "euler",
+        "simple",
+        1.0
+      ]
+    },
+    {
+      "id": 21,
+      "type": "VAEDecode",
+      "title": "装飾・瞳のアップ · 画像",
+      "pos": [
+        2350,
+        470
+      ],
+      "size": [
+        230,
+        65
+      ],
+      "flags": {},
+      "order": 20,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 31
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 32
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            33,
+            51
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 22,
+      "type": "SaveImage",
+      "title": "装飾・瞳のアップ · 保存",
+      "pos": [
+        2660,
+        470
+      ],
+      "size": [
+        310,
+        330
+      ],
+      "flags": {},
+      "order": 21,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 33
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "Kanae/casual/details"
+      ]
+    },
+    {
+      "id": 23,
+      "type": "TextEncodeQwenImage21",
+      "title": "髪／上半身／下半身／装飾の候補 · 指示",
+      "pos": [
+        1550,
+        940
+      ],
+      "size": [
+        365,
+        335
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 34
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 35
+        },
+        {
+          "name": "images.image_1",
+          "type": "IMAGE",
+          "link": 36
+        },
+        {
+          "name": "images.image_2",
+          "type": "IMAGE",
+          "link": 37
+        },
+        {
+          "name": "images.image_3",
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            39
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "links": [
+            40
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            41
+          ],
+          "slot_index": 2
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TextEncodeQwenImage21"
+      },
+      "widgets_values": [
+        "Edit the first 2x2 layout into a clean close-up character reference sheet. Match the same four cells exactly, separated by narrow white gutters. TOP LEFT: zoomed close view of hair fastening from the exact angle of its crop, retaining the shape of the original accessory or hairstyle; TOP RIGHT: the full upper-body outfit, shoulders to waist, with garment structure legible; BOTTOM LEFT: the lower-body outfit from the waist to the shoes in frontal view; BOTTOM RIGHT: a tight detail of the fastener, stripe, garment patch or waist tie shown in the crop. Use the second image only for full-length garment proportions when the lower part was cropped. Keep colors and material, keep the grey-haired girl's original features, no captions, interface, or photographic background. Match these observations: Two swept-back sections of grey hair meet at the back in a twisted half-up style. Black headphones, a beige graphic tee and long plum sleeves. Shirt tied at the hips, asymmetric white lace skirt over wide cropped denim and white high-top shoes. Burgundy plaid shirt knotted around the waist. The hairstyle is a half-up twist; keep the hair detail floral-decoration-free.",
+        "",
+        0
+      ]
+    },
+    {
+      "id": 24,
+      "type": "KSampler",
+      "title": "髪／上半身／下半身／装飾の候補 · Qwen 2.1",
+      "pos": [
+        1985,
+        940
+      ],
+      "size": [
+        300,
+        265
+      ],
+      "flags": {},
+      "order": 23,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 38
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 39
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 40
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 41
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            42
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        981911,
+        "fixed",
+        25,
+        1.0,
+        "euler",
+        "simple",
+        1.0
+      ]
+    },
+    {
+      "id": 25,
+      "type": "VAEDecode",
+      "title": "髪／上半身／下半身／装飾の候補 · 画像",
+      "pos": [
+        2350,
+        940
+      ],
+      "size": [
+        230,
+        65
+      ],
+      "flags": {},
+      "order": 24,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 42
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 43
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            44,
+            52
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 26,
+      "type": "SaveImage",
+      "title": "髪／上半身／下半身／装飾の候補 · 保存",
+      "pos": [
+        2660,
+        940
+      ],
+      "size": [
+        310,
+        330
+      ],
+      "flags": {},
+      "order": 25,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 44
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "Kanae/casual/outfit"
+      ]
+    },
+    {
+      "id": 27,
+      "type": "VAELoader",
+      "title": "Anima 用の参照 VAE",
+      "pos": [
+        3050,
+        130
+      ],
+      "size": [
+        300,
+        65
+      ],
+      "flags": {},
+      "order": 26,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            46
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "qwen_image_vae.safetensors"
+      ]
+    },
+    {
+      "id": 28,
+      "type": "AnimaSaveDetailPack",
+      "title": "衣装別の参照ファイル",
+      "pos": [
+        3430,
+        335
+      ],
+      "size": [
+        330,
+        265
+      ],
+      "flags": {},
+      "order": 27,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "parts",
+          "type": "ANIMA_REF_PARTS",
+          "link": 45
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 46
+        },
+        {
+          "name": "front",
+          "type": "IMAGE",
+          "link": 47
+        },
+        {
+          "name": "left",
+          "type": "IMAGE",
+          "link": 48
+        },
+        {
+          "name": "right",
+          "type": "IMAGE",
+          "link": 49
+        },
+        {
+          "name": "back",
+          "type": "IMAGE",
+          "link": 50
+        },
+        {
+          "name": "qwen_sheet",
+          "type": "IMAGE",
+          "link": 51
+        },
+        {
+          "name": "outfit_sheet",
+          "type": "IMAGE",
+          "link": 52
+        }
+      ],
+      "outputs": [
+        {
+          "name": "saved_path",
+          "type": "STRING",
+          "links": [
+            53
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "overview",
+          "type": "IMAGE",
+          "links": null,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "AnimaSaveDetailPack"
+      },
+      "widgets_values": [
+        "氷渡香名江_カジュアル",
+        "Qwen Image 2.1",
+        "eyes,headphones,chest_mark,waist,hem,shoes"
+      ]
+    },
+    {
+      "id": 29,
+      "type": "PreviewAny",
+      "title": "保存されたファイル",
+      "pos": [
+        3820,
+        330
+      ],
+      "size": [
+        330,
+        130
+      ],
+      "flags": {},
+      "order": 28,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 53
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": null,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "STRING"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      0,
+      "IMAGE"
+    ],
+    [
+      3,
+      1,
+      0,
+      4,
+      0,
+      "STRING"
+    ],
+    [
+      4,
+      4,
+      0,
+      7,
+      0,
+      "ANIMA_REF_PARTS"
+    ],
+    [
+      5,
+      5,
+      0,
+      7,
+      1,
+      "IMAGE"
+    ],
+    [
+      6,
+      4,
+      0,
+      8,
+      0,
+      "ANIMA_REF_PARTS"
+    ],
+    [
+      7,
+      5,
+      0,
+      8,
+      1,
+      "IMAGE"
+    ],
+    [
+      8,
+      4,
+      2,
+      9,
+      0,
+      "IMAGE"
+    ],
+    [
+      9,
+      10,
+      0,
+      11,
+      0,
+      "MODEL"
+    ],
+    [
+      10,
+      12,
+      0,
+      14,
+      0,
+      "CLIP"
+    ],
+    [
+      11,
+      13,
+      0,
+      14,
+      1,
+      "VAE"
+    ],
+    [
+      12,
+      6,
+      0,
+      14,
+      2,
+      "IMAGE"
+    ],
+    [
+      13,
+      7,
+      0,
+      14,
+      3,
+      "IMAGE"
+    ],
+    [
+      14,
+      7,
+      1,
+      14,
+      4,
+      "IMAGE"
+    ],
+    [
+      15,
+      11,
+      0,
+      15,
+      0,
+      "MODEL"
+    ],
+    [
+      16,
+      14,
+      0,
+      15,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      17,
+      14,
+      1,
+      15,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      18,
+      14,
+      2,
+      15,
+      3,
+      "LATENT"
+    ],
+    [
+      19,
+      15,
+      0,
+      16,
+      0,
+      "LATENT"
+    ],
+    [
+      20,
+      13,
+      0,
+      16,
+      1,
+      "VAE"
+    ],
+    [
+      21,
+      16,
+      0,
+      17,
+      0,
+      "IMAGE"
+    ],
+    [
+      22,
+      16,
+      0,
+      18,
+      0,
+      "IMAGE"
+    ],
+    [
+      23,
+      12,
+      0,
+      19,
+      0,
+      "CLIP"
+    ],
+    [
+      24,
+      13,
+      0,
+      19,
+      1,
+      "VAE"
+    ],
+    [
+      25,
+      7,
+      1,
+      19,
+      2,
+      "IMAGE"
+    ],
+    [
+      26,
+      7,
+      0,
+      19,
+      3,
+      "IMAGE"
+    ],
+    [
+      27,
+      11,
+      0,
+      20,
+      0,
+      "MODEL"
+    ],
+    [
+      28,
+      19,
+      0,
+      20,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      29,
+      19,
+      1,
+      20,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      30,
+      19,
+      2,
+      20,
+      3,
+      "LATENT"
+    ],
+    [
+      31,
+      20,
+      0,
+      21,
+      0,
+      "LATENT"
+    ],
+    [
+      32,
+      13,
+      0,
+      21,
+      1,
+      "VAE"
+    ],
+    [
+      33,
+      21,
+      0,
+      22,
+      0,
+      "IMAGE"
+    ],
+    [
+      34,
+      12,
+      0,
+      23,
+      0,
+      "CLIP"
+    ],
+    [
+      35,
+      13,
+      0,
+      23,
+      1,
+      "VAE"
+    ],
+    [
+      36,
+      8,
+      1,
+      23,
+      2,
+      "IMAGE"
+    ],
+    [
+      37,
+      18,
+      0,
+      23,
+      3,
+      "IMAGE"
+    ],
+    [
+      38,
+      11,
+      0,
+      24,
+      0,
+      "MODEL"
+    ],
+    [
+      39,
+      23,
+      0,
+      24,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      40,
+      23,
+      1,
+      24,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      41,
+      23,
+      2,
+      24,
+      3,
+      "LATENT"
+    ],
+    [
+      42,
+      24,
+      0,
+      25,
+      0,
+      "LATENT"
+    ],
+    [
+      43,
+      13,
+      0,
+      25,
+      1,
+      "VAE"
+    ],
+    [
+      44,
+      25,
+      0,
+      26,
+      0,
+      "IMAGE"
+    ],
+    [
+      45,
+      4,
+      0,
+      28,
+      0,
+      "ANIMA_REF_PARTS"
+    ],
+    [
+      46,
+      27,
+      0,
+      28,
+      1,
+      "VAE"
+    ],
+    [
+      47,
+      18,
+      0,
+      28,
+      2,
+      "IMAGE"
+    ],
+    [
+      48,
+      18,
+      1,
+      28,
+      3,
+      "IMAGE"
+    ],
+    [
+      49,
+      18,
+      2,
+      28,
+      4,
+      "IMAGE"
+    ],
+    [
+      50,
+      18,
+      3,
+      28,
+      5,
+      "IMAGE"
+    ],
+    [
+      51,
+      21,
+      0,
+      28,
+      6,
+      "IMAGE"
+    ],
+    [
+      52,
+      25,
+      0,
+      28,
+      7,
+      "IMAGE"
+    ],
+    [
+      53,
+      28,
+      0,
+      29,
+      0,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.5,
+      "offset": [
+        60,
+        80
+      ]
+    }
+  },
+  "version": 0.4
+}

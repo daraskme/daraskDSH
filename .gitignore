@@ -8,3 +8,6 @@ __pycache__/
 .aws/
 .codex/
 .agents/
+
+# Independently versioned local ComfyUI installation and model library
+/plugins/dsh-comfyui/

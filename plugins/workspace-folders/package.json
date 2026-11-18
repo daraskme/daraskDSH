@@ -1,0 +1,8 @@
+{
+  "name": "darask-workspace-folders",
+  "private": true,
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {".":"./index.mjs", "./client":"./client.js", "./package.json":"./package.json"},
+  "dsh": {"client":{"platform":"web","inject":["@deepseek-ai/dsh-client-ui-conversation","@deepseek-ai/dsh-client-ui-primitives"]}}
+}
