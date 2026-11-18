@@ -18,7 +18,7 @@ export const PURPOSES = {
   },
 }
 
-// Caption instructions shared with ComfyUI-Folder-LoRA (dataset.py PURPOSES).
+// Caption instructions per purpose (originally from ComfyUI-Folder-LoRA dataset.py).
 export const CAPTION_INSTRUCTIONS = {
   character:'Focus on one recognizable subject. Describe variable pose, action, expression, clothing, framing, lighting and background. Let the activation phrase carry persistent identity. Do not invent names or backstory.',
   style:'Caption the depicted subjects, arrangement, actions, objects, scenery and lighting in concrete terms. Let the activation phrase carry the target rendering style. Avoid artist names, medium labels and style tags.',

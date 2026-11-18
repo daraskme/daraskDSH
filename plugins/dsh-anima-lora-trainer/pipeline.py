@@ -6,6 +6,7 @@ Progress goes to JOB_DIR/status.json; llama-server output to JOB_DIR/llama.log a
 trainer output to JOB_DIR/train.log. The caller cancels by killing the process group.
 """
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 import json
 import os
@@ -23,9 +24,12 @@ import urllib.request
 
 from PIL import Image, ImageOps
 
-JOB = Path(sys.argv[1])
-REQUEST = json.loads((JOB / "request.json").read_text(encoding="utf-8"))
 ROOT = Path(__file__).resolve().parents[2]
+# Concurrent caption requests. Decoding a 31B model is memory-bandwidth bound, so
+# llama-server batches the slots' tokens almost for free (docs/gemma-caption-native-plan.md).
+PARALLEL = 16
+SLOT_CONTEXT = 1024  # image (<=512 tokens) + instruction + up to 256 caption tokens
+JOB = REQUEST = None
 status = {"stage": "starting", "done": 0, "total": 0, "started": time.time()}
 
 
@@ -53,7 +57,7 @@ def call(base, key, path, body=None, timeout=10):
         return json.load(response)
 
 
-def start_llama(vision):
+def start_llama(vision, log_dir, parallel=PARALLEL, extra=()):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -62,9 +66,10 @@ def start_llama(vision):
     if vision.get("libraryPath"):
         env["LD_LIBRARY_PATH"] = os.pathsep.join(filter(None, [vision["libraryPath"], env.get("LD_LIBRARY_PATH")]))
     command = [vision["server"], "-m", vision["model"], "--mmproj", vision["projector"], "--host", "127.0.0.1",
-               "--port", str(port), "--api-key", key, "--alias", "ortenzya", "-c", "8192", "-np", "1",
-               "-ngl", "all", "--reasoning", "off"]
-    log = (JOB / "llama.log").open("ab")
+               "--port", str(port), "--api-key", key, "--alias", "ortenzya", "-c", str(SLOT_CONTEXT * parallel), "-np", str(parallel),
+               # Every image differs, so a prompt cache only costs time swapping ~670 MiB entries.
+               "-ngl", "all", "--reasoning", "off", "--cache-ram", "0", *extra]
+    log = (Path(log_dir) / "llama.log").open("ab")
     process = subprocess.Popen(command, stdout=log, stderr=log, env=env)
     base = f"http://127.0.0.1:{port}"
     deadline = time.monotonic() + 300
@@ -113,6 +118,14 @@ def write_caption(path, text):
     os.replace(tmp.name, path)
 
 
+def caption_all(base, key, paths, instruction, trigger, on_caption, parallel=PARALLEL):
+    """Caption `paths` concurrently; `on_caption(path, text)` runs in this thread, in completion order."""
+    with ThreadPoolExecutor(parallel) as pool:
+        futures = {pool.submit(caption, base, key, path, instruction): path for path in paths}
+        for future in as_completed(futures):
+            on_caption(futures[future], with_trigger(future.result(), trigger))
+
+
 def caption_folder():
     images = [Path(p) for p in REQUEST["images"]]
     trigger = REQUEST["trigger"]
@@ -127,13 +140,18 @@ def caption_folder():
         status["backup"] = str(backup)
     update(stage="captioning", done=0, total=len(pending), message="Gemma を起動しています")
     if pending:
-        process, base, key = start_llama(vision_config())
+        process, base, key = start_llama(vision_config(), JOB)
         try:
-            for index, path in enumerate(pending, 1):
-                update(message=f"{path.name} のキャプションを作成中")
-                text = with_trigger(caption(base, key, path, REQUEST["instruction"]), trigger)
+            update(message="キャプションを作成中")
+            done = 0
+
+            def save(path, text):
+                nonlocal done
                 write_caption(path.with_suffix(".txt"), text)
-                update(done=index, last_caption=text[:300])
+                done += 1
+                update(done=done, last_caption=text[:300])
+
+            caption_all(base, key, pending, REQUEST["instruction"], trigger, save)
         finally:
             process.terminate()
             try:
@@ -176,10 +194,13 @@ def train():
                                         "first_loss", "last_loss", "training_peak_vram_bytes")}
 
 
-try:
-    caption_folder()
-    result = train()
-    update(stage="done", message="完了", result=result, output=REQUEST["output"], finished=time.time())
-except Exception as error:  # report every failure to the panel
-    update(stage="error", message=str(error), finished=time.time())
-    sys.exit(1)
+if __name__ == "__main__":
+    JOB = Path(sys.argv[1])
+    REQUEST = json.loads((JOB / "request.json").read_text(encoding="utf-8"))
+    try:
+        caption_folder()
+        result = train()
+        update(stage="done", message="完了", result=result, output=REQUEST["output"], finished=time.time())
+    except Exception as error:  # report every failure to the panel
+        update(stage="error", message=str(error), finished=time.time())
+        sys.exit(1)
