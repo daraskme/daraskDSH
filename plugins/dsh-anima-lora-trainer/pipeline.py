@@ -1,0 +1,185 @@
+"""Caption a folder with the local Gemma GGUF, then train an Anima LoRA natively.
+
+Usage: pipeline.py JOB_DIR   (JOB_DIR/request.json is written by jobs.mjs)
+
+Progress goes to JOB_DIR/status.json; llama-server output to JOB_DIR/llama.log and
+trainer output to JOB_DIR/train.log. The caller cancels by killing the process group.
+"""
+import base64
+from io import BytesIO
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+from PIL import Image, ImageOps
+
+JOB = Path(sys.argv[1])
+REQUEST = json.loads((JOB / "request.json").read_text(encoding="utf-8"))
+ROOT = Path(__file__).resolve().parents[2]
+status = {"stage": "starting", "done": 0, "total": 0, "started": time.time()}
+
+
+def update(**changes):
+    status.update(changes, updated=time.time())
+    with tempfile.NamedTemporaryFile("w", dir=JOB, delete=False, encoding="utf-8") as temporary:
+        json.dump(status, temporary, ensure_ascii=False)
+    os.replace(temporary.name, JOB / "status.json")
+
+
+def vision_config():
+    base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    path = Path(os.environ.get("COMFY_FOLDER_LORA_CONFIG") or base / "comfy-folder-lora/config.json")
+    vision = json.loads(path.read_text(encoding="utf-8")).get("vision") or {}
+    for key in ("server", "model", "projector"):
+        if not vision.get(key) or not Path(vision[key]).is_file():
+            raise RuntimeError(f"Gemma のキャプション設定がありません: {path} の vision.{key}")
+    return vision
+
+
+def call(base, key, path, body=None, timeout=10):
+    request = urllib.request.Request(base + path, data=None if body is None else json.dumps(body).encode(),
+                                     headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.load(response)
+
+
+def start_llama(vision):
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    key = secrets.token_urlsafe(32)
+    env = os.environ.copy()
+    if vision.get("libraryPath"):
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(filter(None, [vision["libraryPath"], env.get("LD_LIBRARY_PATH")]))
+    command = [vision["server"], "-m", vision["model"], "--mmproj", vision["projector"], "--host", "127.0.0.1",
+               "--port", str(port), "--api-key", key, "--alias", "ortenzya", "-c", "8192", "-np", "1",
+               "-ngl", "all", "--reasoning", "off"]
+    log = (JOB / "llama.log").open("ab")
+    process = subprocess.Popen(command, stdout=log, stderr=log, env=env)
+    base = f"http://127.0.0.1:{port}"
+    deadline = time.monotonic() + 300
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError("Gemma の起動に失敗しました。llama.log を確認してください。")
+        try:
+            call(base, key, "/health", timeout=2)
+            return process, base, key
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            time.sleep(0.5)
+    process.terminate()
+    raise RuntimeError("Gemma の起動がタイムアウトしました。")
+
+
+def image_data_url(path):
+    with Image.open(path) as image:
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+        data = BytesIO()
+        image.convert("RGB").save(data, format="JPEG", quality=90)
+    return "data:image/jpeg;base64," + base64.b64encode(data.getvalue()).decode("ascii")
+
+
+def caption(base, key, path, instruction):
+    prompt = ("Write only a short, factual English diffusion-training caption (one or two sentences). "
+              + instruction)
+    body = {"model": "ortenzya", "temperature": 0.2, "max_tokens": 256, "messages": [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": image_data_url(path)}}, {"type": "text", "text": prompt}]}]}
+    choice = call(base, key, "/v1/chat/completions", body, timeout=240)["choices"][0]
+    text = " ".join((choice["message"].get("content") or "").split())
+    if not text or choice.get("finish_reason") == "length":
+        raise RuntimeError(f"キャプションが不完全です: {path.name}")
+    return text
+
+
+def with_trigger(text, trigger):
+    if not trigger or text == trigger or re.match(re.escape(trigger) + r"[,\s.:]", text):
+        return text
+    return f"{trigger}, {text}"
+
+
+def write_caption(path, text):
+    with tempfile.NamedTemporaryFile("w", dir=path.parent, prefix=".caption-", delete=False, encoding="utf-8") as tmp:
+        tmp.write(text.strip() + "\n")
+    os.replace(tmp.name, path)
+
+
+def caption_folder():
+    images = [Path(p) for p in REQUEST["images"]]
+    trigger = REQUEST["trigger"]
+    pending = [p for p in images if REQUEST["overwrite"] or not p.with_suffix(".txt").is_file()
+               or not p.with_suffix(".txt").read_text(encoding="utf-8").strip()]
+    existing = [p.with_suffix(".txt") for p in pending if p.with_suffix(".txt").is_file()]
+    if existing:
+        backup = Path(REQUEST["folder"]) / f".caption-backup-{time.strftime('%Y%m%d-%H%M%S')}"
+        backup.mkdir()
+        for path in existing:
+            shutil.copy2(path, backup / path.name)
+        status["backup"] = str(backup)
+    update(stage="captioning", done=0, total=len(pending), message="Gemma を起動しています")
+    if pending:
+        process, base, key = start_llama(vision_config())
+        try:
+            for index, path in enumerate(pending, 1):
+                update(message=f"{path.name} のキャプションを作成中")
+                text = with_trigger(caption(base, key, path, REQUEST["instruction"]), trigger)
+                write_caption(path.with_suffix(".txt"), text)
+                update(done=index, last_caption=text[:300])
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+    # Images that kept their own caption still need the trigger word.
+    if trigger:
+        for path in images:
+            sidecar = path.with_suffix(".txt")
+            text = sidecar.read_text(encoding="utf-8").strip()
+            if text and with_trigger(text, trigger) != text:
+                write_caption(sidecar, with_trigger(text, trigger))
+
+
+def train():
+    metrics = JOB / "metrics.json"
+    command = [str(ROOT / "dsh"), "anima", "train", "--folder", REQUEST["folder"], "--output", REQUEST["output"],
+               "--metrics", str(metrics), "--summary-only", "--log-every", "5",
+               "--cache-dir", str(ROOT / ".runtime/anima-native/cache")]
+    for flag, value in REQUEST["train_args"].items():
+        command += [f"--{flag}", str(value)]
+    update(stage="training", done=0, total=REQUEST["steps"], message="学習を準備中（画像の変換）")
+    with (JOB / "train.log").open("a", encoding="utf-8") as log:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                   encoding="utf-8", errors="replace")
+        for line in process.stdout:
+            log.write(line)
+            log.flush()
+            match = re.match(r"step (\d+)/(\d+) loss=(\S+) elapsed_ms=(\S+)", line)
+            if match:
+                update(done=int(match[1]), total=int(match[2]), loss=float(match[3]),
+                       step_ms=float(match[4]), message="学習中")
+            elif line.startswith("Training "):
+                update(message=line.strip())
+        if process.wait():
+            raise RuntimeError("学習に失敗しました: " + (JOB / "train.log").read_text(encoding="utf-8")[-600:])
+    summary = json.loads(metrics.read_text(encoding="utf-8"))
+    return {k: summary.get(k) for k in ("steps", "images", "training_seconds", "median_step_ms_after_first",
+                                        "first_loss", "last_loss", "training_peak_vram_bytes")}
+
+
+try:
+    caption_folder()
+    result = train()
+    update(stage="done", message="完了", result=result, output=REQUEST["output"], finished=time.time())
+except Exception as error:  # report every failure to the panel
+    update(stage="error", message=str(error), finished=time.time())
+    sys.exit(1)

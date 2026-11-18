@@ -125,6 +125,8 @@ Studio のサイドバーから **ComfyUI** を開くと、Ubuntu の GPU を使
 
 学習は CLI からも、DSH チャットの `anima_lora_train` ツールからも起動できます。
 
+左サイドバーの **Anima LoRA** を押すと、フォルダを選んで「キャラ・スタイル・コンセプト」とトリガーワードを指定するだけで学習できます。フォルダ内の画像はすべてローカルの Gemma 4 Ortenzya 31B（GGUF、`~/.config/comfy-folder-lora/config.json` の `vision`）でキャプションを付け、各キャプションの先頭にトリガーワードを入れます。既存のキャプションを作り直す場合は、元のファイルをフォルダ内の `.caption-backup-日時/` に退避します。学習設定は目的ごとの推奨値（1024px、スタイルは rank 8・cross-attn 1e-5・リスタート cosine、キャラ・コンセプトは rank 16）を使い、出力は ComfyUI の `trained/` に保存されます。実行中は進行状況と残り時間が表示され、中止もできます。
+
 ```bash
 ./dsh anima train --folder /path/to/images \
   --output ./my-anima.safetensors --resolution 512 --rank 16 --steps 200 \
@@ -133,7 +135,7 @@ Studio のサイドバーから **ComfyUI** を開くと、Ubuntu の GPU を使
 
 通常の学習は C++/LibTorch と CUDA で行い、Rust が画像・トークナイザー・safetensors を扱います。出力には新しいファイル名を指定します。ComfyUI からすぐ選びたい場合は `--output` に `plugins/dsh-comfyui/loras/trained/my-anima.safetensors` を指定してください。
 
-`--epochs` では素材一巡を単位に期間を指定できます。約 572px 以下の同じサイズの画像は 2 枚ずつまとめて学習し、その step は学習率を 2 倍にします（`--learning-rate` は 1 枚あたりの値）。512px では 1 枚あたり約 10% 速くなります。`--backend compile` で PyTorch Inductor による学習も選べます。解像度と学習回数ごとの選び方は [実測結果](docs/anima-native-benchmarks.md) を参照してください。[実装計画 v2](docs/anima-native-plan-v2.md)・[Astra 6.2 レビュー](docs/anima-native-astra-review.md)・[v1 計画](docs/anima-native-plan.md)・[Opus 5.5 レビュー](docs/anima-native-opus-review.md)
+`--epochs` では素材一巡を単位に期間を指定できます。約 572px 以下の同じサイズの画像は 2 枚ずつまとめて学習し、その step は学習率を 2 倍にします（`--learning-rate` は 1 枚あたりの値）。512px では 1 枚あたり約 10% 速くなります。モジュールごとの学習率は `--self-attn-lr`・`--cross-attn-lr`・`--mlp-lr`・`--adaln-lr` で指定し、0 にしたモジュールは学習しません（例: MLP のみの画風 LoRA は `--self-attn-lr 0 --cross-attn-lr 0 --adaln-lr 0`）。`--warmup 0.06 --lr-cycles 4` でウォームアップ付きのリスタート cosine、`--timestep-scale 1.2` で timestep 分布、`--weight-decay 0` で減衰を変えられます。`--backend compile` で PyTorch Inductor による学習も選べます。解像度と学習回数ごとの選び方は [実測結果](docs/anima-native-benchmarks.md) を参照してください。[実装計画 v2](docs/anima-native-plan-v2.md)・[Astra 6.2 レビュー](docs/anima-native-astra-review.md)・[v1 計画](docs/anima-native-plan.md)・[Opus 5.5 レビュー](docs/anima-native-opus-review.md)
 
 学習エンジンとチャット用ツールは DSH プラグイン [`plugins/dsh-anima-lora-trainer`](plugins/dsh-anima-lora-trainer/README.md) にまとめています。
 
