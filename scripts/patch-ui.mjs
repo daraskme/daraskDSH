@@ -1,10 +1,12 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import yaml from 'js-yaml'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 const base = new URL('../',import.meta.url)
 const get = path=>readFile(new URL(path,base),'utf8')
-const controls = await get('web/controls.js'), css = await get('web/controls.css')
-async function patch(name,transform) {
-  const file = fileURLToPath(new URL('node_modules/@deepseek-ai/dsh-client-ui-'+name+'/lib/client.js',base))
+const controls = (await Promise.all(['web/model-options.js','web/controls.js','web/instructions.js'].map(get))).join('\n'), css = await get('web/controls.css')
+async function patch(name,transform,entry = 'dsh-client-ui-'+name+'/lib/client.js') {
+  const file = fileURLToPath(new URL('node_modules/@deepseek-ai/'+entry,base))
   const original = file+'.darask-upstream'
   let source
   try { source = await readFile(original,'utf8') }
@@ -22,14 +24,42 @@ async function patch(name,transform) {
   transform(replace,between)
   if(await readFile(file,'utf8')!==source) await writeFile(file,source)
 }
+// Web conversations own their compaction service inside the selected preset;
+// the host-level policy used by headless sessions does not reach those services.
+const compaction = yaml.load(await get('config/agents.yml'),{schema:entryListSchema})
+  .find(row=>row.id==='compaction-basic')?.config
+if (!compaction) throw Error('Missing compaction-basic policy in config/agents.yml')
+const presetCompaction = yaml.dump({config:compaction}).trimEnd().split('\n').map(line=>'                '+line).join('\n')+'\n'
+for (const preset of ['standard','minimal','ptc','cordis']) {
+  await patch('compaction-preset-'+preset,replace=>{
+    const entry = "                name: '@deepseek-ai/dsh-compaction-basic'\n"
+    replace(entry,entry+presetCompaction)
+  },'dsh-web-app/presets/'+preset+'.patch.yml')
+}
+// The GUI's catalog only lists service entry points. Explicit per-chat CLI
+// selections are validated by the adapter, as in the LLM registry's routing API.
+await patch('session-controller',(replace)=>{
+  const start = 'async function modelAvailable(ctx, selection) {'
+  replace(start,start+`
+    if (selection.provider === "local-cli" && selection.model.includes("@")) {
+      try { await ctx.llm.resolveModelInfo(selection.provider,selection.model); return true }
+      catch { return false }
+    }`)
+},'dsh-api-session-controller/lib/index.js')
 await patch('settings-general',(replace,between)=>{
   replace('function SettingsRoot(props) {',controls+'\nfunction SettingsRoot(props) {')
   replace('onboardingActive ? onboardingSteps.find((step) => !completedOnboarding.has(step.id)) : void 0','void 0')
   between('renderSlot("settings.launcher", {','(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.ConnectionIndicator,',
     'dsElement(DaraskFooter,{wide,openSettings:actions.open,theme:props.studioTheme}),\n')
   replace('const shellInjected = () => ({','const shellInjected = () => ({studioTheme:()=>ctx.get("theme"),')
+  const nav = 'function navIcon(id) {'
+  replace(nav,nav+`
+    if (id === "darask-cli") return dsElement(dsUI.IconSlidersTwoOutlineRegular,{size:16});
+    if (id === "darask-instructions") return dsElement(dsUI.IconSkillOutlineRegular,{size:16});
+    if (id === "schedules") return dsElement(dsUI.IconClockOutlineRegular,{size:16});`)
   const section='ctx.slots.inject("settings.section", () => ctx.slots.register({'
-  replace(section,`ctx.slots.inject("settings.section",()=>ctx.slots.register({name:"settings.section",id:"darask-cli",order:12,label:()=>"ローカル CLI"},DaraskOptions));
+  replace(section,`ctx.slots.inject("settings.section",()=>ctx.slots.register({name:"settings.section",id:"darask-cli",order:12,label:()=>"LLMサービス"},DaraskOptions));
+    ctx.slots.inject("settings.section",()=>ctx.slots.register({name:"settings.section",id:"darask-instructions",order:13,label:()=>"スキル・指示ファイル"},DaraskInstructions));
     const style = document.createElement("style");
     style.textContent = ${JSON.stringify(css)};
     document.head.append(style);
@@ -88,29 +118,12 @@ await patch('conversation',(replace,between)=>{
     '"conversation.input.model": {kind:"single",scope:"session-maybe"')
 })
 
-const draftModel = await get('web/session-model.js')
-await patch('model-selection',(replace)=>{
-  const params = 'function ModelSelect({ locked, available, directory, load, select, resolveText, t, renderSlot }) {'
-  replace(params,draftModel+'\n'+params.replace('locked,','locked, studioModel, isDraft,'))
-  const snapshot = 'const state = (0, react.useSyncExternalStore)((fn) => directory.subscribe(fn), () => directory.getSnapshot());'
-  replace(snapshot,snapshot.replace('const state =','const snapshot =')+'\nconst state = isDraft ? studioModelSnapshot(snapshot,studioModel?.draft) : snapshot;')
+const draftModel = (await Promise.all(['web/model-options.js','web/session-model.js'].map(get))).join('\n')
+await patch('model-selection',(replace,between)=>{
+  between('function ModelSelect({ locked, available, directory, load, select, resolveText, t, renderSlot }) {',
+    '//#endregion\n\t\t//#region lib/types/client/locales.js',draftModel+'\n\t\t')
   const injected = 'const directory = models.directoryFor(sessionId);'
   replace(injected,'if (sessionId === undefined) return studioDraftActions(models,ctx);\n'+injected)
-  const label = 'const renderModelLabel = (provider, model, placement, selected) =>'
-  replace(label,'const renderLabelSlot = isDraft ? (_name,_owner,options) => options.fallback : renderSlot;\n'+label)
-  replace('children: renderSlot("conversation.input.model.label",','children: renderLabelSlot("conversation.input.model.label",')
-  replace('className: ModelSelect_module_css_default.root,','className: ModelSelect_module_css_default.root,\nonClick:event => event.stopPropagation(),')
-  const same = 'if (state.current?.provider === selection.provider && state.current.model === selection.model) {'
-  replace(same,same+'\nif (isDraft) { submit(state.current); return }\nstudioModel?.onSelect(state.current);')
-  replace('select(selection).then(settleSelection);',`studioModel?.onBusy(true);
-    select(selection).then(result => {
-      if (result?.ok) studioModel?.onSelect(selection);
-      settleSelection(result);
-    }).catch(error => settleSelection({ok:false,error:{code:"model",message:error.message}}))
-      .finally(() => studioModel?.onBusy(false));`)
-  const drill = 'if (currentChoice === void 0) paneFocus.current = "drill";'
-  replace(drill,'const direct = currentChoice === void 0 || (studioModel && !reasoning);\nif (direct) paneFocus.current = "drill";')
-  replace('setPane(currentChoice === void 0 ? "model" : "root");','setPane(direct ? "model" : "root");')
 })
 await patch('schedule',(replace)=>{
   const from = 'const { useCatalog, onNewTask, onClearEnded, onRetry, onCreateTask, t } = props;'
@@ -145,6 +158,11 @@ await patch('workspace',(replace)=>{
 })
 const picker = await get('web/workspace-picker.js')
 await patch('directory-picker-browse',(replace,between)=>{
+  const registration = 'ctx.slots.inject("conversation.hero.workspace.directoryFlow", () => ctx.slots.inject("sidebar.workspaces.directoryFlow", function* () {'
+  replace(registration,`for (const name of ["darask.folders.hero.picker","darask.folders.header.picker"]) {
+    ctx.slots.inject(name,()=>ctx.slots.register({name,inject:injected},BrowseDirectoryFlow));
+  }
+  `+registration)
   between('function BrowseDirectoryFlow(props) {','//#endregion\n\t\t//#region lib/types/client/index.js',
     picker+'\nfunction BrowseDirectoryFlow(props) { return props.open ? react.createElement(StudioWorkspacePicker,props) : null }\n\t\t')
   replace('function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen, onClose, busy, t })',

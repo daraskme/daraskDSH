@@ -4,7 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=%h/.local/libexec/darask-dsh/cloudflared tunnel --no-autoupdate run --token-file %h/.config/ph3dmg/tunnel.token
+ExecStart=%h/.local/libexec/darask-dsh/cloudflared tunnel --no-autoupdate --edge-ip-version 4 --protocol http2 run --token-file %h/.config/ph3dmg/tunnel.token
 Restart=on-failure
 RestartSec=4
 
