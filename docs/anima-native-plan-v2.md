@@ -23,11 +23,13 @@ DSH プラグイン `plugins/dsh-anima-lora-trainer/` に集約する（C++/CUDA
 
 1. **内訳の計測** — ウォームアップ後の連続 step で GPU 空白時間と壁時計を同じ区間で取る（`nsys`）。統計回収・ログも区間に含める。diffusion-pipe 現行構成の同条件 step 時間を 1 回だけ測る。
 2. **無駄な cast の除去（最安）** — `Projections::linear` が W 用と LoRA A 用に別々に `x.to(dtype)` している。cast を 1 回にして共有し、self Q/K/V は分岐前に 1 回だけ cast する。既存の勾配パリティで確認する。
-3. **batch>1** — eager で B=1/2/4 を測る。B=1 の ms/step と B>1 の ms/枚を別に記録する。既定値は「同じ処理枚数で品質ゲートを通った構成の完走時間」で決める（画像/秒だけでは決めない）。
-4. **凍結 QKV / cross KV の連結** — 投影が実測で重い場合だけ、ロード時に凍結 self QKV と cross KV を連結して GEMM 数を減らす（28 block で 84 呼び出し減）。LoRA A/B は独立のまま（A を W に連結すると不要な W 勾配が出るのでやらない）。
+3. **batch>1（実施済み: ≤約 572px で B=2・lr×2 を自動適用）** — eager で B=1/2/4 を測る。B=1 の ms/step と B>1 の ms/枚を別に記録する。既定値は「同じ処理枚数で品質ゲートを通った構成の完走時間」で決める（画像/秒だけでは決めない）。
+4. **凍結 QKV / cross KV の連結（試して不採用: 速度差なし、BF16 の勾配ずれが増加）** — 投影が実測で重い場合だけ、ロード時に凍結 self QKV と cross KV を連結して GEMM 数を減らす（28 block で 84 呼び出し減）。LoRA A/B は独立のまま（A を W に連結すると不要な W 勾配が出るのでやらない）。
 5. **CUDA Graphs（手順 1 で空白時間が大きい場合のみ）** — capture は forward + backward + 固定バッファへの grad 回収・norm まで。AdamW と統計書き込みは graph の外に残し、実際の `step + 1` と `slot` を毎回渡す。graph の単位は完全一致の `(B,H,W,L)` で、頻出形状だけ capture して残りは eager。入力は固定バッファへコピーする。context の padding はしない（cross-attention に mask がないため結果が変わる）。
-6. **attention の比較** — self/cross を分け、実形状で forward + backward の合計を自動選択と各バックエンドで比較する。速くて両方完走した箇所だけ固定する。
-7. **FP8 凍結 GEMM（試験的）** — 最も重い実形状 1 個で、cuBLASLt (SM 12.0) が受理する scale と配置を forward と dX の両方向で確認する。per-tensor scale、量子化コスト込みで BF16 と比較し、勝たなければ打ち切る。勝った場合も FP8 は凍結 GEMM の内部に閉じ、LoRA 分岐と出力は BF16 のまま（現行の `dtype = weight.scalar_type()` を FP8 化すると LoRA まで FP8 になるので不可）。
+6. **attention の比較（実施済み: 自動選択の flash が最速のため変更なし）** — self/cross を分け、実形状で forward + backward の合計を自動選択と各バックエンドで比較する。速くて両方完走した箇所だけ固定する。
+7. **FP8 凍結 GEMM（検証して不採用: 量子化込みで約 4%、GEMM 1 回の誤差 3.8%）** — 最も重い実形状 1 個で、cuBLASLt (SM 12.0) が受理する scale と配置を forward と dX の両方向で確認する。per-tensor scale、量子化コスト込みで BF16 と比較し、勝たなければ打ち切る。勝った場合も FP8 は凍結 GEMM の内部に閉じ、LoRA 分岐と出力は BF16 のまま（現行の `dtype = weight.scalar_type()` を FP8 化すると LoRA まで FP8 になるので不可）。
+
+**追加: 要素ごとの演算の融合（実施済み）** — 融合 RMSNorm、`LoraLinear`（LoRA 項を addmm に統合）、融合 RoPE（`rope.cu`）、LayerNorm の affine への変調統合。1024px は 248.5 → 209.0 ms/step。精度は `tests/bf16_accuracy.py`（FP32 に対して参照 BF16 以上）で判定する。
 
 やらないこと: 汎用モデル対応、マルチ GPU、手書き attention カーネル、backend 抽象、NVFP4、層単位の FP8 フォールバック機構、LoRA A の W 連結、torch.export/AOTInductor。
 

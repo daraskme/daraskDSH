@@ -88,6 +88,7 @@ struct RawConfig {
     seed: i64,
     log_every: i64,
     lr: f64,
+    epochs: i64,
 }
 
 #[repr(C)]
@@ -519,7 +520,7 @@ pub fn run(settings: &Settings, samples: &[Sample]) -> Result<()> {
                 "The native Anima runtime is out of date. Rebuild it with dsh anima build"
                     .to_string()
             })?;
-    if unsafe { abi_version() } != 1 {
+    if unsafe { abi_version() } != 2 {
         return Err("Unsupported native Anima ABI. Rebuild it with dsh anima build".into());
     }
     let entry = unsafe { library.get::<Run>(b"dsh_anima_run\0") }.map_err(|err| err.to_string())?;
@@ -534,16 +535,18 @@ pub fn run(settings: &Settings, samples: &[Sample]) -> Result<()> {
     let raw_weights: Vec<RawTensor> = weights.iter().map(Tensor::raw).collect();
     let frontend =
         CString::new(settings.frontend.as_os_str().as_bytes()).map_err(|err| err.to_string())?;
+    let (steps, epochs) = settings.duration();
     let config = RawConfig {
         weights: raw_weights.as_ptr(),
         weight_count: raw_weights.len(),
         sample_count: samples.len(),
         frontend_dir: frontend.as_ptr(),
-        steps: settings.steps(samples.len())?,
+        steps,
         rank: settings.rank,
         seed: settings.seed,
         log_every: settings.log_every,
         lr: settings.lr,
+        epochs,
     };
     let mut state = CallbackState {
         settings,
@@ -557,12 +560,19 @@ pub fn run(settings: &Settings, samples: &[Sample]) -> Result<()> {
         .cache_dir
         .as_ref()
         .map(|_| write_cache as WriteCache);
-    eprintln!(
-        "Encoding {} image(s) at {}px and training {} step(s) with the native backend",
-        samples.len(),
-        settings.resolution,
-        config.steps
-    );
+    if steps > 0 {
+        eprintln!(
+            "Encoding {} image(s) at {}px and training {steps} step(s) with the native backend",
+            samples.len(),
+            settings.resolution,
+        );
+    } else {
+        eprintln!(
+            "Encoding {} image(s) at {}px and training {epochs} epoch(s) with the native backend",
+            samples.len(),
+            settings.resolution,
+        );
+    }
     let result = unsafe {
         entry(
             &config,

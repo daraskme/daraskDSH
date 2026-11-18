@@ -48,6 +48,8 @@ typedef struct DshAnimaConfig {
     int64_t seed;
     int64_t log_every;
     double lr;
+    // With steps == 0, train this many passes over the (batched) dataset.
+    int64_t epochs;
 } DshAnimaConfig;
 
 typedef struct DshAnimaMetrics {

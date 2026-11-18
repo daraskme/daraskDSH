@@ -19,13 +19,13 @@ BUILD_DIR = WORKSPACE / ".runtime" / "anima-native" / "extension"
 RUNTIME_LIBRARY = BUILD_DIR.parent / "libdsh_anima_runtime.so"
 
 
-def _compile_optimizer():
+def _compile_kernel(source_name, symbol, header_name):
     torch_path = Path(torch.__file__).resolve().parent
     wheel_nvrtc = torch_path.parent / "nvidia" / "cuda_nvrtc" / "lib" / "libnvrtc.so.12"
     try:
         nvrtc = ctypes.CDLL(str(wheel_nvrtc) if wheel_nvrtc.is_file() else "libnvrtc.so.12")
     except OSError as error:
-        raise RuntimeError("Native Anima needs CUDA 12 NVRTC to build the AdamW kernel") from error
+        raise RuntimeError("Native Anima needs CUDA 12 NVRTC to build the Anima CUDA kernels") from error
 
     program_type = ctypes.c_void_p
     char_pointer = ctypes.c_char_p
@@ -46,9 +46,9 @@ def _compile_optimizer():
         if code:
             raise RuntimeError(nvrtc.nvrtcGetErrorString(code).decode())
 
-    source = (SOURCE / "optimizer.cu").read_bytes()
+    source = (SOURCE / source_name).read_bytes()
     program = program_type()
-    check(nvrtc.nvrtcCreateProgram(ctypes.byref(program), source, b"optimizer.cu", 0, None, None))
+    check(nvrtc.nvrtcCreateProgram(ctypes.byref(program), source, source_name.encode(), 0, None, None))
     try:
         options = (char_pointer * 2)(b"--gpu-architecture=compute_80", b"--std=c++17")
         code = nvrtc.nvrtcCompileProgram(program, len(options), options)
@@ -57,15 +57,15 @@ def _compile_optimizer():
             check(nvrtc.nvrtcGetProgramLogSize(program, ctypes.byref(size)))
             log = ctypes.create_string_buffer(size.value)
             check(nvrtc.nvrtcGetProgramLog(program, log))
-            raise RuntimeError(f"Could not compile the Anima AdamW CUDA kernel:\n{log.value.decode()}")
+            raise RuntimeError(f"Could not compile the Anima CUDA kernel {source_name}:\n{log.value.decode()}")
         check(nvrtc.nvrtcGetPTXSize(program, ctypes.byref(size)))
         ptx = ctypes.create_string_buffer(size.value)
         check(nvrtc.nvrtcGetPTX(program, ptx))
     finally:
         nvrtc.nvrtcDestroyProgram(ctypes.byref(program))
 
-    header = BUILD_DIR / "optimizer_ptx.h"
-    content = b'inline constexpr char adamw_ptx[] = R"dsh_anima(' + ptx.value + b')dsh_anima";\n'
+    header = BUILD_DIR / header_name
+    content = b'inline constexpr char ' + symbol.encode() + b'[] = R"dsh_anima(' + ptx.value + b')dsh_anima";\n'
     if not header.exists() or header.read_bytes() != content:
         with NamedTemporaryFile(dir=BUILD_DIR, delete=False) as temporary:
             temporary.write(content)
@@ -96,13 +96,14 @@ def load_extension(*, verbose=False):
         raise RuntimeError("Native Anima needs the CUDA toolkit headers. Set CUDA_HOME to the toolkit directory.")
 
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
-    _compile_optimizer()
+    _compile_kernel("optimizer.cu", "adamw_ptx", "optimizer_ptx.h")
+    _compile_kernel("rope.cu", "rope_ptx", "rope_ptx.h")
     torch_lib = Path(torch.__file__).resolve().parent / "lib"
     toolkit = Path(cpp_extension.CUDA_HOME)
     cuda_lib = toolkit / ("lib64" if (toolkit / "lib64").is_dir() else "lib")
     return cpp_extension.load(
         name="dsh_anima_native",
-        sources=[str(SOURCE / name) for name in ("engine.cpp", "model.cpp", "optimizer.cpp", "standalone.cpp")],
+        sources=[str(SOURCE / name) for name in ("engine.cpp", "model.cpp", "optimizer.cpp", "rope.cpp", "standalone.cpp")],
         extra_cflags=["-O3"],
         extra_include_paths=[str(BUILD_DIR), str(toolkit / "include")],
         extra_ldflags=["-Wl,--as-needed", f"-Wl,-rpath,{torch_lib}:{cuda_lib}", f"-L{torch_lib}", f"-L{cuda_lib}",

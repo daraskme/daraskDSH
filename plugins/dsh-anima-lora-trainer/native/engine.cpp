@@ -262,7 +262,9 @@ NativeTrainingResult train(
             const at::NoGradGuard no_grad;
             const auto grads = adapters.take_gradients();
             const auto norm = at::linalg_vector_norm(grads, 2, std::nullopt, false, at::kFloat);
-            adamw_step(adapters.flat, grads, first_moment, second_moment, residual, norm, lr, step + 1);
+            // The learning rate is per image: a batch of B images takes a B-times step.
+            adamw_step(adapters.flat, grads, first_moment, second_moment, residual, norm,
+                       lr * static_cast<double>(batch), step + 1);
             statistics[slot][0].copy_(loss.detach());
             statistics[slot][1].copy_(norm);
         }

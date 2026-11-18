@@ -18,7 +18,10 @@ Usage: dsh anima train --folder DIR --output PATH [OPTIONS]
   --rank N               LoRA rank [default: 16]
   --steps N              Number of optimizer steps
   --epochs N             Passes over the dataset [default: 1]
-  --learning-rate LR     Constant AdamW learning rate [default: 0.00002]
+  --learning-rate LR     Constant AdamW learning rate per image [default: 0.00002]
+
+Same-size images up to about 572px are trained two per step (the step uses
+twice the learning rate); larger images train one per step.
   --seed N               Random seed [default: 42]
   --backend BACKEND      native, eager, or compile [default: native]
   --config PATH          Folder LoRA config.json
@@ -229,13 +232,12 @@ fn lock_frontend(directory: &Path) -> Result<Option<File>> {
 }
 
 impl Settings {
-    pub fn steps(&self, samples: usize) -> Result<i64> {
+    /// `(steps, epochs)` for the runtime: exactly one is positive. With epochs,
+    /// the runtime counts steps after pairing same-size images into batches.
+    pub fn duration(&self) -> (i64, i64) {
         match self.steps {
-            Some(steps) => Ok(steps),
-            None => self
-                .epochs
-                .checked_mul(samples as i64)
-                .ok_or_else(|| "Training step count is too large".into()),
+            Some(steps) => (steps, 0),
+            None => (0, self.epochs),
         }
     }
 

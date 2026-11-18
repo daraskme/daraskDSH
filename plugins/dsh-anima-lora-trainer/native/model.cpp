@@ -4,10 +4,15 @@
 #include "model.h"
 
 #include <ATen/ATen.h>
+#include <torch/autograd.h>
 #include <cmath>
 #include <string_view>
+#include <vector>
 
 namespace anima {
+
+at::Tensor rope_cuda(const at::Tensor& x, const at::Tensor& cos, const at::Tensor& sin, bool backward);
+
 namespace {
 
 using at::Tensor;
@@ -17,6 +22,42 @@ constexpr int64_t context_channels = 1024;
 constexpr int64_t patch_size = 2;
 constexpr int64_t max_patch_extent = 512;
 constexpr double norm_epsilon = 1e-6;
+
+// y = x W^T + (x A^T) B^T with the LoRA term passed to cuBLAS as the GEMM's C
+// input, in both directions: forward adds B(Ax) and backward adds dX_A inside the
+// frozen GEMM instead of separate elementwise adds. W is frozen (no gradient).
+struct LoraLinear : torch::autograd::Function<LoraLinear> {
+    static Tensor forward(
+        torch::autograd::AutogradContext* ctx, const Tensor& x, const Tensor& weight,
+        const Tensor& a, const Tensor& b) {
+        const auto rows = x.reshape({-1, x.size(-1)});
+        const auto low_rank = rows.mm(a.t());
+        auto output = at::addmm(low_rank.mm(b.t()), rows, weight.t());
+        ctx->save_for_backward({rows, low_rank, weight, a, b});
+        auto shape = x.sizes().vec();
+        shape.back() = weight.size(0);
+        return output.view(shape);
+    }
+
+    static torch::autograd::tensor_list backward(
+        torch::autograd::AutogradContext* ctx, torch::autograd::tensor_list grads) {
+        const auto saved = ctx->get_saved_variables();
+        const auto& rows = saved[0];
+        const auto& low_rank = saved[1];
+        const auto& weight = saved[2];
+        const auto& a = saved[3];
+        const auto& b = saved[4];
+        const auto grad = grads[0].reshape({-1, weight.size(0)});
+        const auto grad_low_rank = grad.mm(b);
+        Tensor grad_x;
+        if (ctx->needs_input_grad(0)) {
+            auto shape = grads[0].sizes().vec();
+            shape.back() = weight.size(1);
+            grad_x = at::addmm(grad_low_rank.mm(a), grad, weight).view(shape);
+        }
+        return {grad_x, Tensor(), grad_low_rank.t().mm(rows), grad.t().mm(low_rank)};
+    }
+};
 
 struct Projections {
     const TensorMap& weights;
@@ -33,19 +74,16 @@ struct Projections {
         const auto dtype = weight.scalar_type();
         // Cast once and share it between the frozen and LoRA branches.
         const auto input = x.scalar_type() == dtype ? x : x.to(dtype);
-        auto result = at::linear(input, weight);
-
         const auto a = adapters.find(name + ".lora_A.weight");
         const auto b = adapters.find(name + ".lora_B.weight");
         TORCH_CHECK((a == adapters.end()) == (b == adapters.end()),
                     "Incomplete Anima LoRA pair for ", name);
-        if (a != adapters.end()) {
-            // Reference CUDA autocast performs the two LoRA linears at the
-            // model's compute dtype even when the adapter leaves are FP32.
-            auto low_rank = at::linear(input, a->second.to(dtype));
-            result = result + at::linear(low_rank, b->second.to(dtype));
+        if (a == adapters.end()) {
+            return at::linear(input, weight);
         }
-        return result;
+        // Reference CUDA autocast performs the two LoRA linears at the
+        // model's compute dtype even when the adapter leaves are FP32.
+        return LoraLinear::apply(input, weight, a->second.to(dtype), b->second.to(dtype));
     }
 };
 
@@ -55,11 +93,29 @@ Tensor rms_norm(const Tensor& x, const Tensor& weight) {
     return normalized.to(x.scalar_type()) * weight;
 }
 
+// Fused BF16 CUDA rotary embedding; the backward is the transposed rotation.
+struct FusedRope : torch::autograd::Function<FusedRope> {
+    static Tensor forward(torch::autograd::AutogradContext* ctx, const Tensor& x, const Tensor& cos,
+                          const Tensor& sin) {
+        ctx->save_for_backward({cos, sin});
+        return rope_cuda(x, cos, sin, false);
+    }
+
+    static torch::autograd::tensor_list backward(
+        torch::autograd::AutogradContext* ctx, torch::autograd::tensor_list grads) {
+        const auto saved = ctx->get_saved_variables();
+        return {rope_cuda(grads[0], saved[0], saved[1], true), Tensor(), Tensor()};
+    }
+};
+
 struct RotaryEmbedding {
     Tensor cos;
     Tensor sin;
 
     Tensor apply(const Tensor& x) const {
+        if (x.is_cuda() && x.scalar_type() == at::kBFloat16 && x.dim() == 4) {
+            return FusedRope::apply(x, cos, sin);
+        }
         auto halves = x.chunk(2, -1);
         auto rotated = at::cat({-halves[1], halves[0]}, -1);
         return x * cos + rotated * sin;
@@ -106,8 +162,13 @@ Tensor attention(
     const auto dtype = projections.frozen(prefix + ".q_proj.weight").scalar_type();
     const auto query_input = query.to(dtype);
     const auto context_input = context.is_same(query) ? query_input : context.to(dtype);
-    auto q = rms_norm(project(query_input, ".q_proj"), projections.frozen(prefix + ".q_norm.weight"));
-    auto k = rms_norm(project(context_input, ".k_proj"), projections.frozen(prefix + ".k_norm.weight"));
+    // ATen's fused RMSNorm (one kernel each way) applies the weight before the
+    // single BF16 rounding; the reference rounds before the weight multiply.
+    const auto head_norm = [&](const Tensor& x, const char* key) {
+        return at::rms_norm(x, {head_dim}, projections.frozen(prefix + key), norm_epsilon);
+    };
+    auto q = head_norm(project(query_input, ".q_proj"), ".q_norm.weight");
+    auto k = head_norm(project(context_input, ".k_proj"), ".k_norm.weight");
     auto v = project(context_input, ".v_proj");
     if (rope != nullptr) {
         q = rope->apply(q);
@@ -126,8 +187,22 @@ Tensor modulation(const Projections& projections, const Tensor& emb, const std::
 Tensor modulated_norm(const Tensor& x, const Tensor& shift, const Tensor& scale) {
     // CUDA autocast promotes this affine-free LayerNorm to FP32. The following
     // scale-and-shift stays FP32 until the next autocast linear.
-    auto normalized = at::layer_norm(x.to(at::kFloat), {x.size(-1)}, {}, {}, norm_epsilon);
-    return normalized * (1 + scale) + shift;
+    // (1 + scale) and shift are per sample, so each sample's modulation is
+    // LayerNorm's own affine weight and bias: one kernel each way instead of
+    // separate multiply/add kernels and their gradient reductions.
+    const auto channels = x.size(-1);
+    const auto input = x.to(at::kFloat);
+    const auto weight = (1 + scale).to(at::kFloat);
+    const auto bias = shift.to(at::kFloat);
+    if (x.size(0) == 1) {
+        return at::layer_norm(input, {channels}, weight.reshape({channels}), bias.reshape({channels}), norm_epsilon);
+    }
+    std::vector<Tensor> samples;
+    for (int64_t i = 0; i < x.size(0); ++i) {
+        samples.push_back(at::layer_norm(input[i], {channels}, weight[i].reshape({channels}),
+                                         bias[i].reshape({channels}), norm_epsilon));
+    }
+    return at::stack(samples);
 }
 
 Tensor transformer_block(

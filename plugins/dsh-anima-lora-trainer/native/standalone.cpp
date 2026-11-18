@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <map>
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -152,13 +154,47 @@ anima::TensorDictionary initialize_adapters(const anima::TensorDictionary& weigh
     return adapters;
 }
 
+// Measured on RTX PRO 6000 Blackwell: B=2 cuts ms/image by 27% at 512px
+// (1,024 tokens) and gives nothing at 1024px, where a single image already
+// saturates the GPU. Pair same-shape samples up to this many patch tokens.
+constexpr int64_t max_batched_tokens = 1280;
+constexpr int64_t small_batch = 2;
+
+std::pair<std::vector<at::Tensor>, std::vector<at::Tensor>> batch_samples(
+    std::vector<at::Tensor> latents, std::vector<at::Tensor> contexts, int64_t seed) {
+    std::map<std::vector<int64_t>, std::vector<size_t>> groups;
+    auto generator = at::detail::createCPUGenerator(static_cast<uint64_t>(seed) ^ 0x5a17u);
+    const auto order = at::randperm(static_cast<int64_t>(latents.size()), generator, at::kLong);
+    for (int64_t i = 0; i < order.numel(); ++i) {
+        const auto index = static_cast<size_t>(order.const_data_ptr<int64_t>()[i]);
+        const auto shape = latents[index].sizes();
+        groups[{shape.begin(), shape.end()}].push_back(index);
+    }
+    std::vector<at::Tensor> batched_latents, batched_contexts;
+    for (const auto& [shape, members] : groups) {
+        const auto tokens = (shape[3] / 2) * (shape[4] / 2);
+        const size_t size = tokens <= max_batched_tokens ? small_batch : 1;
+        for (size_t start = 0; start < members.size(); start += size) {
+            std::vector<at::Tensor> latent_group, context_group;
+            for (size_t j = start; j < std::min(start + size, members.size()); ++j) {
+                latent_group.push_back(latents[members[j]]);
+                context_group.push_back(contexts[members[j]]);
+            }
+            batched_latents.push_back(at::cat(latent_group));
+            batched_contexts.push_back(at::cat(context_group));
+        }
+    }
+    return {std::move(batched_latents), std::move(batched_contexts)};
+}
+
 void run(
     const DshAnimaConfig& config, void* user, DshAnimaReadSample read_sample,
     DshAnimaWriteCache write_cache, DshAnimaWriteOutput write_output) {
     TORCH_CHECK(config.sample_count && read_sample && write_output, "Anima needs a dataset and result writer");
     TORCH_CHECK(config.weights && config.weight_count, "Anima needs DiT weights");
     TORCH_CHECK(config.frontend_dir && *config.frontend_dir, "Anima needs a frontend export directory");
-    TORCH_CHECK(config.steps > 0 && config.rank > 0 && config.log_every >= 0 &&
+    TORCH_CHECK((config.steps > 0) != (config.epochs > 0) && config.steps >= 0 && config.epochs >= 0 &&
+                    config.rank > 0 && config.log_every >= 0 &&
                     config.lr > 0 && std::isfinite(config.lr), "Invalid Anima training configuration");
     TORCH_CHECK(c10::cuda::device_count() > 0, "Native Anima training needs an available CUDA GPU");
 
@@ -171,7 +207,17 @@ void run(
     constexpr auto aggregate = static_cast<size_t>(c10::CachingDeviceAllocator::StatType::AGGREGATE);
     c10::cuda::CUDACachingAllocator::resetPeakStats(device.index());
     const auto prepare_start = Clock::now();
-    auto [latents, contexts, cache_hits] = prepare_dataset(config, device, user, read_sample, write_cache);
+    auto [samples, sample_contexts, cache_hits] = prepare_dataset(config, device, user, read_sample, write_cache);
+    auto [latents, contexts] = batch_samples(std::move(samples), std::move(sample_contexts), config.seed);
+    const int64_t batch_count = static_cast<int64_t>(latents.size());
+    TORCH_CHECK(config.steps > 0 || config.epochs <= std::numeric_limits<int64_t>::max() / batch_count,
+                "Training step count is too large");
+    const int64_t steps = config.steps > 0 ? config.steps : config.epochs * batch_count;
+    std::fprintf(stderr, "Training %lld step(s) over %lld batch(es) of up to %lld image(s)\n",
+                 static_cast<long long>(steps), static_cast<long long>(batch_count),
+                 static_cast<long long>(std::max_element(latents.begin(), latents.end(), [](const auto& a, const auto& b) {
+                     return a.size(0) < b.size(0);
+                 })->size(0)));
     const auto prepare_stats = c10::cuda::CUDACachingAllocator::getDeviceStats(device.index());
     c10::cuda::CUDACachingAllocator::emptyCache();
     const auto train_start = Clock::now();
@@ -179,7 +225,7 @@ void run(
     const auto initial = initialize_adapters(weights, config.rank, config.seed);
     c10::cuda::CUDACachingAllocator::resetPeakStats(device.index());
     auto [trained, losses, elapsed] = anima::train(
-        weights, initial, latents, contexts, config.steps, config.lr, config.seed, {}, {}, config.log_every);
+        weights, initial, latents, contexts, steps, config.lr, config.seed, {}, {}, config.log_every);
     const auto train_end = Clock::now();
     const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(device.index());
 
@@ -192,7 +238,7 @@ void run(
         tensors.push_back(tensor_record(item.value(), names.back().c_str()));
     }
     const DshAnimaMetrics metrics = {
-        losses.const_data_ptr<float>(), elapsed.const_data_ptr<float>(), static_cast<size_t>(config.steps), cache_hits,
+        losses.const_data_ptr<float>(), elapsed.const_data_ptr<float>(), static_cast<size_t>(steps), cache_hits,
         std::chrono::duration<double>(train_start - prepare_start).count(),
         std::chrono::duration<double>(train_end - train_start).count(),
         static_cast<uint64_t>(stats.allocated_bytes[aggregate].peak),
@@ -206,7 +252,7 @@ void run(
 }  // namespace
 
 extern "C" uint32_t dsh_anima_abi_version() {
-    return 1;
+    return 2;
 }
 
 extern "C" int dsh_anima_run(

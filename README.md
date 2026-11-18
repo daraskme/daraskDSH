@@ -133,7 +133,7 @@ Studio のサイドバーから **ComfyUI** を開くと、Ubuntu の GPU を使
 
 通常の学習は C++/LibTorch と CUDA で行い、Rust が画像・トークナイザー・safetensors を扱います。出力には新しいファイル名を指定します。ComfyUI からすぐ選びたい場合は `--output` に `plugins/dsh-comfyui/loras/trained/my-anima.safetensors` を指定してください。
 
-`--epochs` では素材一巡を単位に期間を指定できます。`--backend compile` で PyTorch Inductor による学習も選べます。解像度と学習回数ごとの選び方は [実測結果](docs/anima-native-benchmarks.md) を参照してください。[実装計画 v2](docs/anima-native-plan-v2.md)・[Astra 6.2 レビュー](docs/anima-native-astra-review.md)・[v1 計画](docs/anima-native-plan.md)・[Opus 5.5 レビュー](docs/anima-native-opus-review.md)
+`--epochs` では素材一巡を単位に期間を指定できます。約 572px 以下の同じサイズの画像は 2 枚ずつまとめて学習し、その step は学習率を 2 倍にします（`--learning-rate` は 1 枚あたりの値）。512px では 1 枚あたり約 10% 速くなります。`--backend compile` で PyTorch Inductor による学習も選べます。解像度と学習回数ごとの選び方は [実測結果](docs/anima-native-benchmarks.md) を参照してください。[実装計画 v2](docs/anima-native-plan-v2.md)・[Astra 6.2 レビュー](docs/anima-native-astra-review.md)・[v1 計画](docs/anima-native-plan.md)・[Opus 5.5 レビュー](docs/anima-native-opus-review.md)
 
 学習エンジンとチャット用ツールは DSH プラグイン [`plugins/dsh-anima-lora-trainer`](plugins/dsh-anima-lora-trainer/README.md) にまとめています。
 
