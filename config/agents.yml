@@ -1,8 +1,6 @@
 - insert:
     - id: darask-task-router
       name: ../plugins/task-router/index.mjs
-    - id: darask-comfyui
-      name: ../plugins/comfyui/index.mjs
     - id: dsh-anima-lora-trainer
       name: ../plugins/dsh-anima-lora-trainer/index.mjs
     - id: darask-cli-models

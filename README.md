@@ -98,23 +98,11 @@ dsh ask openai --model gpt-6.2-astra --effort high '設計をレビューして'
 
 本番のユーザーサービスは `darask-dsh.service` と `darask-dsh-tunnel.service` です。Web の入口はループバックの 8789 番で、HTTP と WebSocket の双方で Cloudflare の署名と対象アプリ、期限を検証します。ローカル開発では `npm ci` と `uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt` で依存関係を復元できます。
 
-## ComfyUI
-
-Studio のサイドバーから **ComfyUI** を開くと、Ubuntu の GPU を使う公式ノードエディターを操作できます。右上の **別タブで開く** から、チャットとエディターを並べて使えます。Studio のチャットでは「青い陶器のカップを生成して、画像のリンクを返して」と頼めます。生成結果はエディターのジョブ履歴にも表示されます。
-
-手動で作ったグラフを AI と編集するときは、エディターのワークフロー一覧に名前を付けて保存し、チャットでその名前を指定してください。例えば「cup.json を読み、プロンプトを夕景に変えた別名のワークフローを保存して」と依頼できます。エディターの JSON はノードの位置や接続を含みます。実行用の API 形式はエディターからエクスポートするか、実行後のジョブから取得できます。
-
-| エージェント用ツール | 操作 |
-| --- | --- |
-| `comfyui_catalog` | インストール済みのチェックポイント、LoRA、ノードと入力仕様を調べる |
-| `comfyui_generate` | SD 1.x・SDXL 用チェックポイントで、文章から画像を生成する |
-| `comfyui_run` | 任意の API 形式のグラフをキューに登録する |
-| `comfyui_job` | 指定したジョブの進行状況、エラー、生成物のリンク、実行したグラフを取得する |
-| `comfyui_workflow` | エディターが使うワークフローを一覧・取得・保存する |
+## Anima LoRA 学習
 
 ### Anima Base v1.0 のネイティブ LoRA 学習
 
-画像と同名の UTF-8 キャプション（例として `01.png` と `01.txt`）をフォルダーに揃えます。学習に使う Anima Base、VAE、Qwen3 のパスは Folder LoRA と同じ `~/.config/comfy-folder-lora/config.json` から読みます。
+画像と同名の UTF-8 キャプション（例として `01.png` と `01.txt`）をフォルダーに揃えます。学習に使う Anima Base、VAE、Qwen3 と、キャプション用 Gemma のパスは `~/.config/comfy-folder-lora/config.json` から読みます。
 
 初回セットアップは次の 2 コマンドです。学習環境の CUDA 対応 PyTorch・NVRTC、C++ コンパイラ、Ninja、Rust/Cargo を使います。`prepare` は GPU 上で凍結エンコーダーの変換結果を検証し、約 1.5 GiB のファイルを `.runtime/anima-native/frontend` に作成します。
 
@@ -139,15 +127,4 @@ Studio のサイドバーから **ComfyUI** を開くと、Ubuntu の GPU を使
 
 学習エンジンとチャット用ツールは DSH プラグイン [`plugins/dsh-anima-lora-trainer`](plugins/dsh-anima-lora-trainer/README.md) にまとめています。
 
-この端末では ComfyUI v0.45.0 を `.runtime/ComfyUI` に置き、`darask-comfyui.service` で起動しています。既存の ComfyUI に接続する場合は、DSH と同じ端末で起動し、必要に応じて `DSH_COMFYUI_URL` にローカルの HTTP 接続先を設定します。既定値は `http://127.0.0.1:8188` です。Studio は `/comfy/` の HTTP と WebSocket に既存の認証を適用します。
-
-新しい Ubuntu 環境にこの構成を復元する例です。モデルと生成物はローカルに保存されます。
-
-```bash
-git clone --depth 1 --branch v0.45.0 https://github.com/Comfy-Org/ComfyUI .runtime/ComfyUI
-uv venv --python 3.12 .runtime/comfy-venv
-uv pip install --python .runtime/comfy-venv/bin/python --torch-backend=auto -r .runtime/ComfyUI/requirements.txt
-.runtime/comfy-venv/bin/python .runtime/ComfyUI/main.py --listen 127.0.0.1 --port 8188
-```
-
-標準の画像生成には `v1-5-pruned-emaonly.safetensors` を `.runtime/ComfyUI/models/checkpoints/` に配置します。別のチェックポイントはモデル名で指定できます。[モデル配布元](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/blob/main/v1-5-pruned-emaonly.safetensors) · [ComfyUI の API](https://docs.comfy.org/development/comfyui-server/comms_routes)
+DSH の ComfyUI 連携（サイドバーの ComfyUI、`comfyui_*` ツール、`/comfy/` の中継）と ComfyUI-Folder-LoRA ノードは削除しました。学習済み LoRA とモデルは `plugins/dsh-comfyui/` に残り、ローカルの ComfyUI（`.runtime/ComfyUI`、`darask-comfyui.service`）からは引き続き読み込めます。MiniMax H3 の動画生成と P-H3 の画像生成・編集はネイティブ実装に移行する予定です。
