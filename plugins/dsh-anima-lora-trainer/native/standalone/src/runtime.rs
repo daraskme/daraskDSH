@@ -89,6 +89,14 @@ struct RawConfig {
     log_every: i64,
     lr: f64,
     epochs: i64,
+    self_attn_lr: f64,
+    cross_attn_lr: f64,
+    mlp_lr: f64,
+    adaln_lr: f64,
+    weight_decay: f64,
+    timestep_scale: f64,
+    warmup: f64,
+    lr_cycles: i64,
 }
 
 #[repr(C)]
@@ -377,6 +385,12 @@ struct Summary<'a> {
     resolution: u32,
     rank: i64,
     learning_rate: f64,
+    /// Self-attention, cross-attention, MLP, adaLN; null means --learning-rate.
+    module_learning_rates: [Option<f64>; 4],
+    warmup: f64,
+    lr_cycles: i64,
+    timestep_scale: f64,
+    weight_decay: f64,
     seed: i64,
     preprocessing_seconds: f64,
     preprocessing_peak_vram_bytes: u64,
@@ -458,6 +472,11 @@ extern "C" fn write_output(
             resolution: settings.resolution,
             rank: settings.rank,
             learning_rate: settings.lr,
+            module_learning_rates: settings.module_lr.map(|rate| (rate >= 0.0).then_some(rate)),
+            warmup: settings.warmup,
+            lr_cycles: settings.lr_cycles,
+            timestep_scale: settings.timestep_scale,
+            weight_decay: settings.weight_decay,
             seed: settings.seed,
             preprocessing_seconds: stats.prepare_seconds,
             preprocessing_peak_vram_bytes: stats.prepare_peak_allocated_bytes,
@@ -520,7 +539,7 @@ pub fn run(settings: &Settings, samples: &[Sample]) -> Result<()> {
                 "The native Anima runtime is out of date. Rebuild it with dsh anima build"
                     .to_string()
             })?;
-    if unsafe { abi_version() } != 2 {
+    if unsafe { abi_version() } != 3 {
         return Err("Unsupported native Anima ABI. Rebuild it with dsh anima build".into());
     }
     let entry = unsafe { library.get::<Run>(b"dsh_anima_run\0") }.map_err(|err| err.to_string())?;
@@ -547,6 +566,14 @@ pub fn run(settings: &Settings, samples: &[Sample]) -> Result<()> {
         log_every: settings.log_every,
         lr: settings.lr,
         epochs,
+        self_attn_lr: settings.module_lr[0],
+        cross_attn_lr: settings.module_lr[1],
+        mlp_lr: settings.module_lr[2],
+        adaln_lr: settings.module_lr[3],
+        weight_decay: settings.weight_decay,
+        timestep_scale: settings.timestep_scale,
+        warmup: settings.warmup,
+        lr_cycles: settings.lr_cycles,
     };
     let mut state = CallbackState {
         settings,

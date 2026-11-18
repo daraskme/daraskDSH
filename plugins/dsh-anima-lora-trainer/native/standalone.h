@@ -50,6 +50,15 @@ typedef struct DshAnimaConfig {
     double lr;
     // With steps == 0, train this many passes over the (batched) dataset.
     int64_t epochs;
+    // Per-module learning rates (negative: lr; 0: no LoRA for that module).
+    double self_attn_lr;
+    double cross_attn_lr;
+    double mlp_lr;
+    double adaln_lr;
+    double weight_decay;
+    double timestep_scale;
+    double warmup;      // fraction of steps
+    int64_t lr_cycles;  // 0: constant; n: cosine with n hard restarts
 } DshAnimaConfig;
 
 typedef struct DshAnimaMetrics {

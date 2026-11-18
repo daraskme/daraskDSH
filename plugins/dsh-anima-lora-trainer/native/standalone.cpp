@@ -128,16 +128,17 @@ anima::TensorDictionary read_weights(const DshAnimaConfig& config) {
     return weights;
 }
 
-anima::TensorDictionary initialize_adapters(const anima::TensorDictionary& weights, int64_t rank, int64_t seed) {
+anima::TensorDictionary initialize_adapters(
+    const anima::TensorDictionary& weights, int64_t rank, int64_t seed, const anima::TrainOptions& options) {
     std::vector<std::string> names;
     for (const auto& item : weights) {
         const auto name = item.key();
         if (name.substr(0, 7) == "blocks." && name.size() > 7 && name.substr(name.size() - 7) == ".weight" &&
-            item.value().dim() == 2) {
+            item.value().dim() == 2 && options.group_lr[anima::module_group(name)] != 0) {
             names.push_back(item.key());
         }
     }
-    TORCH_CHECK(!names.empty(), "Anima DiT checkpoint contains no compatible transformer blocks");
+    TORCH_CHECK(!names.empty(), "No Anima LoRA targets: every module learning rate is 0 or the checkpoint has no blocks");
     std::sort(names.begin(), names.end());
 
     auto generator = at::detail::createCPUGenerator(static_cast<uint64_t>(seed));
@@ -222,10 +223,16 @@ void run(
     c10::cuda::CUDACachingAllocator::emptyCache();
     const auto train_start = Clock::now();
     const auto weights = read_weights(config);
-    const auto initial = initialize_adapters(weights, config.rank, config.seed);
+    anima::TrainOptions options;
+    options.group_lr = {config.self_attn_lr, config.cross_attn_lr, config.mlp_lr, config.adaln_lr, -1};
+    options.weight_decay = config.weight_decay;
+    options.timestep_scale = config.timestep_scale;
+    options.warmup = config.warmup;
+    options.lr_cycles = config.lr_cycles;
+    const auto initial = initialize_adapters(weights, config.rank, config.seed, options);
     c10::cuda::CUDACachingAllocator::resetPeakStats(device.index());
-    auto [trained, losses, elapsed] = anima::train(
-        weights, initial, latents, contexts, steps, config.lr, config.seed, {}, {}, config.log_every);
+    auto [trained, losses, elapsed] = anima::train_with_options(
+        weights, initial, latents, contexts, steps, config.lr, config.seed, {}, {}, config.log_every, options);
     const auto train_end = Clock::now();
     const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(device.index());
 
@@ -252,7 +259,7 @@ void run(
 }  // namespace
 
 extern "C" uint32_t dsh_anima_abi_version() {
-    return 2;
+    return 3;
 }
 
 extern "C" int dsh_anima_run(

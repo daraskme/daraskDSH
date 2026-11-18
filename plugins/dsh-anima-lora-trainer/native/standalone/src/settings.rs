@@ -18,7 +18,15 @@ Usage: dsh anima train --folder DIR --output PATH [OPTIONS]
   --rank N               LoRA rank [default: 16]
   --steps N              Number of optimizer steps
   --epochs N             Passes over the dataset [default: 1]
-  --learning-rate LR     Constant AdamW learning rate per image [default: 0.00002]
+  --learning-rate LR     AdamW learning rate per image [default: 0.00002]
+  --self-attn-lr LR      Self-attention LoRA rate (0: not trained) [default: --learning-rate]
+  --cross-attn-lr LR     Cross-attention LoRA rate (0: not trained) [default: --learning-rate]
+  --mlp-lr LR            MLP LoRA rate (0: not trained) [default: --learning-rate]
+  --adaln-lr LR          adaLN modulation LoRA rate (0: not trained) [default: --learning-rate]
+  --warmup FRACTION      Linear warmup over this fraction of the steps [default: 0]
+  --lr-cycles N          Cosine schedule with N hard restarts (0: constant) [default: 0]
+  --timestep-scale S     Sample t = sigmoid(S * N(0,1)) [default: 1]
+  --weight-decay WD      AdamW decoupled weight decay [default: 0.01]
 
 Same-size images up to about 572px are trained two per step (the step uses
 twice the learning rate); larger images train one per step.
@@ -46,6 +54,12 @@ pub struct Settings {
     steps: Option<i64>,
     epochs: i64,
     pub lr: f64,
+    /// Self-attention, cross-attention, MLP, adaLN (negative: use lr).
+    pub module_lr: [f64; 4],
+    pub warmup: f64,
+    pub lr_cycles: i64,
+    pub timestep_scale: f64,
+    pub weight_decay: f64,
     pub seed: i64,
     pub log_every: i64,
     pub diffusion: PathBuf,
@@ -203,6 +217,15 @@ fn check_frontend(
     Ok(())
 }
 
+/// A finite, nonnegative decimal option value.
+fn decimal(value: OsString, flag: &str) -> Result<f64> {
+    value
+        .to_str()
+        .and_then(|text| text.parse::<f64>().ok())
+        .filter(|number| number.is_finite() && *number >= 0.0)
+        .ok_or_else(|| format!("{flag} needs a nonnegative number"))
+}
+
 fn integer(value: OsString, flag: &str) -> Result<i64> {
     value
         .to_str()
@@ -260,6 +283,11 @@ impl Settings {
         let mut steps = None;
         let mut epochs = None;
         let mut lr = 2e-5_f64;
+        let mut module_lr = [-1.0_f64; 4];
+        let mut warmup = 0.0_f64;
+        let mut lr_cycles = 0;
+        let mut timestep_scale = 1.0_f64;
+        let mut weight_decay = 0.01_f64;
         let mut seed = 42;
         let mut log_every = 1;
         let mut cfg = None;
@@ -283,6 +311,14 @@ impl Settings {
                     .ok_or_else(|| format!("{flag} requires a value"))
             };
             match flag {
+                "--self-attn-lr" => module_lr[0] = decimal(value()?, flag)?,
+                "--cross-attn-lr" => module_lr[1] = decimal(value()?, flag)?,
+                "--mlp-lr" => module_lr[2] = decimal(value()?, flag)?,
+                "--adaln-lr" => module_lr[3] = decimal(value()?, flag)?,
+                "--warmup" => warmup = decimal(value()?, flag)?,
+                "--timestep-scale" => timestep_scale = decimal(value()?, flag)?,
+                "--weight-decay" => weight_decay = decimal(value()?, flag)?,
+                "--lr-cycles" => lr_cycles = integer(value()?, flag)?,
                 "-h" | "--help" if attached.is_none() => {
                     print!("{HELP}");
                     return Ok(None);
@@ -336,6 +372,14 @@ impl Settings {
                 "Use a positive finite --learning-rate and nonnegative --seed and --log-every"
                     .into(),
             );
+        }
+        if warmup >= 1.0 || lr_cycles < 0 || timestep_scale <= 0.0 {
+            return Err(
+                "--warmup must be below 1, --lr-cycles nonnegative and --timestep-scale positive".into(),
+            );
+        }
+        if module_lr.iter().all(|&rate| rate == 0.0) {
+            return Err("At least one module learning rate must be positive".into());
         }
         let folder = expand_user(folder.ok_or("--folder is required")?);
         let output = std::path::absolute(expand_user(output.ok_or("--output is required")?))
@@ -396,6 +440,11 @@ impl Settings {
             steps,
             epochs: epochs.unwrap_or(1),
             lr,
+            module_lr,
+            warmup,
+            lr_cycles,
+            timestep_scale,
+            weight_decay,
             seed,
             log_every,
             diffusion,

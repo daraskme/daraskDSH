@@ -6,6 +6,8 @@ const timeoutMs = 12 * 60 * 60 * 1000
 const flags = {
   folder:'folder', output:'output', resolution:'resolution', rank:'rank', steps:'steps',
   epochs:'epochs', learningRate:'learning-rate', seed:'seed', cacheDir:'cache-dir',
+  selfAttnLr:'self-attn-lr', crossAttnLr:'cross-attn-lr', mlpLr:'mlp-lr', adalnLr:'adaln-lr',
+  warmup:'warmup', lrCycles:'lr-cycles', timestepScale:'timestep-scale', weightDecay:'weight-decay',
   config:'config', frontend:'frontend', metrics:'metrics',
 }
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
@@ -15,11 +17,13 @@ export const animaToolServices = ['shell', 'shellEnv', 'workingDirectory']
 export function registerAnimaTool(ctx) {
   ctx.tools.register(defineTool({
     name:'anima_lora_train',
-    description:'Train a ComfyUI-compatible Anima LoRA on the local CUDA GPU from a folder of images with same-stem .txt captions. Use a new .safetensors output path. Paths are relative to the current chat workspace. Specify steps or epochs. The training process is cancelled if the tool call is stopped.',
+    description:'Train a ComfyUI-compatible Anima LoRA on the local CUDA GPU from a folder of images with same-stem .txt captions. Use a new .safetensors output path. Paths are relative to the current chat workspace. Specify steps or epochs. Per-module rates (selfAttnLr, crossAttnLr, mlpLr, adalnLr) default to learningRate; 0 leaves that module untrained (e.g. MLP-only style LoRA: selfAttnLr=0, crossAttnLr=0, adalnLr=0). warmup is a fraction of steps; lrCycles>0 uses cosine with hard restarts. The training process is cancelled if the tool call is stopped.',
     parameters:{
       folder:{type:'string',required:true}, output:{type:'string',required:true},
       resolution:{type:'integer'}, rank:{type:'integer'}, steps:{type:'integer'}, epochs:{type:'integer'},
       learningRate:{type:'number'}, seed:{type:'integer'}, recursive:{type:'boolean'},
+      selfAttnLr:{type:'number'}, crossAttnLr:{type:'number'}, mlpLr:{type:'number'}, adalnLr:{type:'number'},
+      warmup:{type:'number'}, lrCycles:{type:'integer'}, timestepScale:{type:'number'}, weightDecay:{type:'number'},
       cacheDir:{type:'string'}, config:{type:'string'}, frontend:{type:'string'}, metrics:{type:'string'},
     },
     output:{schema:{type:'string'},render:(_,value)=>[{type:'text',text:value}]},

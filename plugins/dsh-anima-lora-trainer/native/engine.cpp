@@ -27,7 +27,29 @@ namespace anima {
 void adamw_step(
     at::Tensor& params, const at::Tensor& grads, at::Tensor& first_moment,
     at::Tensor& second_moment, at::Tensor& residual, const at::Tensor& grad_norm,
-    double lr, int64_t step);
+    double lr, double weight_decay, int64_t step);
+
+ModuleGroup module_group(const std::string& name) {
+    if (name.find(".self_attn.") != std::string::npos) return self_attention;
+    if (name.find(".cross_attn.") != std::string::npos) return cross_attention;
+    if (name.find(".mlp.") != std::string::npos) return mlp;
+    if (name.find(".adaln_modulation") != std::string::npos) return adaln_modulation;
+    return other_modules;
+}
+
+double schedule_factor(const TrainOptions& options, int64_t step, int64_t steps) {
+    const auto warmup = static_cast<int64_t>(std::ceil(options.warmup * static_cast<double>(steps)));
+    if (step < warmup) {
+        return static_cast<double>(step + 1) / static_cast<double>(warmup);
+    }
+    if (options.lr_cycles <= 0 || steps <= warmup) {
+        return 1.0;
+    }
+    // Hugging Face cosine_with_hard_restarts_schedule_with_warmup.
+    const auto progress = static_cast<double>(step - warmup) / static_cast<double>(steps - warmup);
+    const auto phase = std::fmod(static_cast<double>(options.lr_cycles) * progress, 1.0);
+    return std::max(0.0, 0.5 * (1.0 + std::cos(M_PI * phase)));
+}
 
 namespace {
 
@@ -142,7 +164,11 @@ struct AdapterParameters {
             count += value.numel();
         }
 
-        std::sort(names.begin(), names.end());
+        // Group-contiguous layout so each module group can take its own learning rate.
+        std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) {
+            const auto ga = module_group(a), gb = module_group(b);
+            return ga != gb ? ga < gb : a < b;
+        });
         parameters.reserve(names.size());
         tensors.reserve(names.size());
         flat = at::empty({count}, options);
@@ -154,9 +180,21 @@ struct AdapterParameters {
             parameter.set_requires_grad(true);
             parameters.push_back(parameter);
             tensors.emplace(name, parameter);
+            const auto group = module_group(name);
+            if (segments.empty() || segments.back().group != group) {
+                segments.push_back({group, offset, 0});
+            }
+            segments.back().count += value.numel();
             offset += value.numel();
         }
     }
+
+    struct Segment {
+        ModuleGroup group;
+        int64_t offset;
+        int64_t count;
+    };
+    std::vector<Segment> segments;
 
     at::Tensor take_gradients() const {
         TensorList gradients;
@@ -189,6 +227,18 @@ NativeTrainingResult train(
     const Dictionary& initial_weights, const Dictionary& initial_adapters,
     const TensorList& latents, const TensorList& contexts, int64_t steps, double lr, int64_t seed,
     const std::optional<TensorList>& noises, const std::optional<TensorList>& times, int64_t log_every) {
+    return train_with_options(initial_weights, initial_adapters, latents, contexts, steps, lr, seed,
+                              noises, times, log_every, TrainOptions{});
+}
+
+NativeTrainingResult train_with_options(
+    const Dictionary& initial_weights, const Dictionary& initial_adapters,
+    const TensorList& latents, const TensorList& contexts, int64_t steps, double lr, int64_t seed,
+    const std::optional<TensorList>& noises, const std::optional<TensorList>& times, int64_t log_every,
+    const TrainOptions& options) {
+    TORCH_CHECK(options.weight_decay >= 0 && options.timestep_scale > 0 && options.warmup >= 0 &&
+                    options.warmup < 1 && options.lr_cycles >= 0,
+                "Invalid Anima schedule, timestep or weight decay option");
     TORCH_CHECK(steps > 0, "Anima training steps must be positive");
     TORCH_CHECK(std::isfinite(lr) && lr > 0 && lr <= std::numeric_limits<float>::max(),
                 "Anima learning rate must be finite, positive and representable in float32");
@@ -248,7 +298,8 @@ NativeTrainingResult train(
         const auto context = frozen_to(contexts[sample], gpu_bfloat);
         const auto batch = latent.size(0);
         const auto time = times ? frozen_to((*times)[step], gpu_float)
-                                : at::randn({batch, 1}, time_generator, cpu_float).sigmoid().to(gpu_float);
+                                : at::randn({batch, 1}, time_generator, cpu_float)
+                                      .mul(options.timestep_scale).sigmoid().to(gpu_float);
         const auto noise = noises ? frozen_to((*noises)[step], gpu_float)
                                   : at::randn(latent.sizes(), noise_generator, gpu_float);
         const auto fraction = time.view({batch, 1, 1, 1, 1});
@@ -263,8 +314,17 @@ NativeTrainingResult train(
             const auto grads = adapters.take_gradients();
             const auto norm = at::linalg_vector_norm(grads, 2, std::nullopt, false, at::kFloat);
             // The learning rate is per image: a batch of B images takes a B-times step.
-            adamw_step(adapters.flat, grads, first_moment, second_moment, residual, norm,
-                       lr * static_cast<double>(batch), step + 1);
+            const auto factor = schedule_factor(options, step, steps) * static_cast<double>(batch);
+            for (const auto& segment : adapters.segments) {
+                const auto group_lr = options.group_lr[segment.group];
+                const auto rate = (group_lr < 0 ? lr : group_lr) * factor;
+                auto params = adapters.flat.narrow(0, segment.offset, segment.count);
+                auto first = first_moment.narrow(0, segment.offset, segment.count);
+                auto second = second_moment.narrow(0, segment.offset, segment.count);
+                auto rest = residual.narrow(0, segment.offset, segment.count);
+                adamw_step(params, grads.narrow(0, segment.offset, segment.count), first, second, rest, norm,
+                           rate, options.weight_decay, step + 1);
+            }
             statistics[slot][0].copy_(loss.detach());
             statistics[slot][1].copy_(norm);
         }

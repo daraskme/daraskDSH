@@ -26,7 +26,7 @@ cudaKernel_t optimizer_kernel() {
 void adamw_step(
     at::Tensor& params, const at::Tensor& grads, at::Tensor& first_moment,
     at::Tensor& second_moment, at::Tensor& residual, const at::Tensor& grad_norm,
-    double lr, int64_t step) {
+    double lr, double weight_decay, int64_t step) {
     const double beta1_power = std::pow(0.9, step);
     const double beta2_power = std::pow(0.99, step);
     const double beta1 = (beta1_power - 0.9) / (beta1_power - 1);
@@ -40,7 +40,7 @@ void adamw_step(
     auto* norm = grad_norm.const_data_ptr<float>();
     auto count = params.numel();
     auto rate = static_cast<float>(lr);
-    auto decay = static_cast<float>(1.0 - lr * 0.01);
+    auto decay = static_cast<float>(1.0 - lr * weight_decay);
     auto b2 = static_cast<float>(beta2);
     auto b1_comp = static_cast<float>(1.0 - beta1);
     auto b2_comp = static_cast<float>(1.0 - beta2);
