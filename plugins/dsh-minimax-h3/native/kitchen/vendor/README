@@ -1,0 +1,6 @@
+Vendored from https://github.com/Comfy-Org/comfy-kitchen at tag v0.2.41 (commit cbc44a5), unmodified:
+- comfy_kitchen/backends/cuda/sage_attention/: sol_attn*.cu, sol_layout.cuh and its headers
+  (math, mma, cp_async, numeric_conversion, permuted_smem .cuh)
+- comfy_kitchen/backends/cuda/ops/: rms_rope.cu, rope_device.cuh
+- comfy_kitchen/backends/cuda/: dtype_dispatch.cuh, utils.cuh
+Licensed under the Apache License 2.0 (see LICENSE and NOTICE in this directory).
