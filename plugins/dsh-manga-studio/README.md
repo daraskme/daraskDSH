@@ -11,7 +11,9 @@
   - `typeset.py` が層をコマごとの SVG にする。文字はフォントの輪郭をパスにする（HarfBuzz で縦書きの字形）ので、どの端末でも、PNG に保存しても同じに見える。DSH が常駐させる
 - **書き文字のスタイル（19 種）**: CLIP STUDIO ASSETS の無料の描き文字ブラシの傾向（マーカー・べちょ筆・SE 文字ペン・横太・ふち / 二重フチ・ぽてぽて・手書きセリフ・丸筆）を参考に、フリーフォント＋加工（フチ・斜体・字ごとの揺れ・だんだん大きく・震えの残像・立体の影・残響・速度の尾）で作った。迫力 / 威圧 / 鋭い SE / 横太・二重フチ / ポップ・ふち / ぽてぽて / 描き文字マーカー / べちょ筆・墨 / 草書 / 手書きペン / 丸文字 / やわらか手書き / 電子音 / 立体 / 袋文字の立体 / 震え・不気味 / 静寂 / 鼓動・残響 / 抜き文字。用途は `typeset.py styles`、見本は [docs/sfx-styles.png](docs/sfx-styles.png)
 - **フォント**: すべて Google Fonts の SIL OFL 1.1（`fonts.json`。台詞はしっぽりアンチック B1、ナレーションは Zen Old Mincho、書き文字は Dela Gothic One・Reggae One・RocknRoll One・Mochiy Pop One・Darumadrop One・Yusei Magic・Zen Kurenaido・Hachi Maru Pop・DotGothic16・Rampart One・Yuji Boku・Yuji Syuku・Potta One・Yomogi・Train One）。本体（約 74 MB）は git に入れず `.runtime/manga/fonts` に置く
-- **ページ**: PNG で保存できる（絵・枠・層）
+- **AI 検品と自動の直し**（ComicStudio の Vision QA → targeted retry を参考）: 「検品する」で、Claude Code が各コマの絵（と人物の設定画）を Read で見て、ネームの人物・人数・動作・小道具・ショットと、`skill/references/visual-check.md` に照らす。問題のあるコマには直し方（描き直しの追加プロンプト、または P-H3 の修正指示）を出し、自動で直す設定なら直しをキューに入れ、仕上がった絵を採用して検品し直す（既定は最大 2 回）。結果はページのコマに「検品 OK / 要確認」として出る
+- **人物の設定画を AI で描く**（AI Comic Generator・StoryDiffusion を参考）: 人物の外見の英文から Anima で全身の立ち絵（solo）を描き、設定画がまだなければ 1 枚目を使う。設定画は P-H3 の参照生成・修正と検品に渡る。コマの P-H3 修正には「人物を設定画にそろえる」指示を一押しで入れられる
+- **ページ**: PNG で保存できる（絵・枠・層）。作品まるごと **CBZ**（ページの PNG と ComicInfo.xml、右綴じ `Manga=YesAndRightToLeft`）でも書き出せる（comic-maker を参考）
 - 保存先: `.runtime/manga/projects/<id>/`（`project.json`、`images/`、`refs/`）。削除したプロジェクトは `.runtime/manga/trash/`
 - API: `/api/darask.manga`（`api.mjs`）。ネームの解析は `python3 manga.py analyze name.json`
 

@@ -110,14 +110,16 @@ window.__ModuleLoader__.load({
               style:box,onClick:onPanel ? () => onPanel(panel.id) : undefined,'aria-label':'コマ ' + (index + 1) + ': ' + (beats.get(panel.id)?.beat || '')},
             file ? h('img',{src:fileUrl(project.id, file),alt:'',loading:'lazy'})
               : !small && h('span',{className:'mg-beat'},(index + 1) + '. ' + (beats.get(panel.id)?.beat || '')),
-            busy && h('span',{className:'mg-badge'},busy.progress || TAKE_STATE[busy.state]))
+            busy && h('span',{className:'mg-badge'},busy.progress || TAKE_STATE[busy.state]),
+            !small && !busy && project.qa?.[panel.id] && project.qa[panel.id].file === file &&
+              h('span',{className:'mg-qa' + (project.qa[panel.id].ok ? ' is-ok' : ''),title:project.qa[panel.id].problems.join('\n') || '問題なし'},project.qa[panel.id].ok ? '検品 OK' : '要確認'))
         }),
         page.panels.map(panel => overlays[panel.id] && h('img',{key:'o' + panel.id,className:'mg-overlay',alt:'',
           src:svgUrl(overlays[panel.id].svg),style:padded(panel.bbox)})))
     }
 
-    /** Draws the page as a PNG: pictures, frames, then the overlays (all paths, so they look the same everywhere). */
-    async function exportPage(data, page) {
+    /** Draws a page on a canvas: pictures, frames, then the overlays (all paths, so they look the same everywhere). */
+    async function renderPage(data, page) {
       const W = 1654, H = Math.round(W * page.aspect)
       const canvas = document.createElement('canvas')
       canvas.width = W; canvas.height = H
@@ -146,10 +148,65 @@ window.__ModuleLoader__.load({
         const [x1, y1, x2, y2] = panel.bbox, w = sx(x2) - sx(x1), hh = sy(y2) - sy(y1)
         g.drawImage(img, sx(x1) - PAD * w, sy(y1) - PAD * hh, w * (1 + 2 * PAD), hh * (1 + 2 * PAD))
       }
+      return canvas
+    }
+
+    function download(name, href) {
       const link = document.createElement('a')
-      link.download = (data.project.name.meta.title || 'manga') + '-p' + String(page.number).padStart(3, '0') + '.png'
-      link.href = canvas.toDataURL('image/png')
+      link.download = name
+      link.href = href
       link.click()
+      if (href.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(href), 60000)
+    }
+    const baseName = data => (data.project.name.meta.title || 'manga').replace(/[\\/:*?"<>|]/g, '_')
+
+    async function exportPage(data, page) {
+      const canvas = await renderPage(data, page)
+      download(baseName(data) + '-p' + String(page.number).padStart(3, '0') + '.png', canvas.toDataURL('image/png'))
+    }
+
+    // CBZ (zip of page images + ComicInfo.xml, read right to left), stored without compression.
+    const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0 } return t })()
+    const crc32 = bytes => { let c = 0xFFFFFFFF; for (let i = 0; i < bytes.length; i++) c = CRC[(c ^ bytes[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0 }
+    function zip(files) {
+      const enc = new TextEncoder(), parts = [], central = []
+      let offset = 0
+      for (const file of files) {
+        const name = enc.encode(file.name), data = file.data, crc = crc32(data)
+        const head = new DataView(new ArrayBuffer(30))
+        ;[[0, 0x04034b50, 4], [4, 20, 2], [6, 0x0800, 2], [8, 0, 2], [10, 0, 2], [12, 0x21, 2], [14, crc, 4], [18, data.length, 4], [22, data.length, 4], [26, name.length, 2], [28, 0, 2]]
+          .forEach(([at, v, n]) => n === 4 ? head.setUint32(at, v, true) : head.setUint16(at, v, true))
+        const dir = new DataView(new ArrayBuffer(46))
+        ;[[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0x0800, 2], [10, 0, 2], [12, 0, 2], [14, 0x21, 2], [16, crc, 4], [20, data.length, 4], [24, data.length, 4],
+          [28, name.length, 2], [30, 0, 2], [32, 0, 2], [34, 0, 2], [36, 0, 2], [38, 0, 4], [42, offset, 4]]
+          .forEach(([at, v, n]) => n === 4 ? dir.setUint32(at, v, true) : dir.setUint16(at, v, true))
+        parts.push(head, name, data)
+        central.push(dir, name)
+        offset += 30 + name.length + data.length
+      }
+      const size = central.reduce((n, x) => n + x.byteLength, 0)
+      const end = new DataView(new ArrayBuffer(22))
+      ;[[0, 0x06054b50, 4], [4, 0, 2], [6, 0, 2], [8, files.length, 2], [10, files.length, 2], [12, size, 4], [16, offset, 4], [20, 0, 2]]
+        .forEach(([at, v, n]) => n === 4 ? end.setUint32(at, v, true) : end.setUint16(at, v, true))
+      return new Blob([...parts, ...central, end], {type:'application/vnd.comicbook+zip'})
+    }
+
+    async function exportCbz(data, progress) {
+      const files = []
+      const pages = data.analysis.pages
+      for (const page of pages) {
+        progress?.('P' + page.number + ' / ' + pages.length + ' を組んでいます')
+        const canvas = await renderPage(data, page)
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+        files.push({name:String(page.number).padStart(3, '0') + '.png', data:new Uint8Array(await blob.arrayBuffer())})
+      }
+      const x = v => String(v).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))
+      const info = `<?xml version="1.0" encoding="utf-8"?>\n<ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n` +
+        `  <Title>${x(data.project.name.meta.title || '')}</Title>\n  <Summary>${x(data.project.brief.idea || '')}</Summary>\n` +
+        `  <PageCount>${pages.length}</PageCount>\n  <LanguageISO>ja</LanguageISO>\n  <Manga>YesAndRightToLeft</Manga>\n  <BlackAndWhite>Yes</BlackAndWhite>\n</ComicInfo>\n`
+      files.push({name:'ComicInfo.xml', data:new TextEncoder().encode(info)})
+      download(baseName(data) + '.cbz', URL.createObjectURL(zip(files)))
+      progress?.('')
     }
 
 
@@ -309,8 +366,28 @@ window.__ModuleLoader__.load({
             h('select',{value:form.lora_name || '','aria-label':'キャラ LoRA',onChange:e => set({lora_name:e.target.value})},h('option',{value:''},'キャラ LoRA なし'),
               loras.map(n => h('option',{key:n,value:n},n.replace(/\.safetensors$/,'')))),
             h('input',{type:'number',step:0.05,min:-2,max:2,value:form.lora_strength ?? 1,className:'mg-narrow','aria-label':'強さ',onChange:e => set({lora_strength:e.target.value})})),
+          character && h(Sheets,{data,act,busy,character}),
           h('div',{className:'mg-actions'},h(Button,{type:'submit',size:'sm',variant:'primary',disabled:busy},'保存'),
             character && h(Button,{type:'button',size:'sm',variant:'outline',disabled:busy,onClick:() => { if (confirm(form.name + ' を人物表から外しますか？')) act({action:'character',project:project.id,remove:character.id}) }},'外す'))))
+    }
+
+    /** Character sheets drawn by Anima from the appearance; the first becomes the reference when there is none. */
+    function Sheets({data, act, busy, character}) {
+      const {project} = data
+      const takes = project.takes?.['@char:' + character.id] || []
+      const files = takes.flatMap(t => t.files.map(file => ({file, take:t.id})))
+      const waiting = takes.find(t => t.state === 'queued' || t.state === 'running')
+      return h('div',{className:'mg-sheets'},
+        h('div',{className:'mg-actions'},
+          h(Button,{type:'button',size:'sm',variant:'outline',disabled:busy || !character.appearance || !!waiting,
+            onClick:() => act({action:'sheet',project:project.id,character:character.id,count:2},'設定画を Anima のキューに入れました')},
+            waiting ? '設定画を描いています（' + (waiting.progress || TAKE_STATE[waiting.state]) + '）' : 'AI で設定画を描く（2 枚）'),
+          h('span',{className:'mg-meta'},'外見の英文から全身の立ち絵を描き、設定画がまだなければ 1 枚目を使います。')),
+        files.length > 0 && h('div',{className:'mg-sheet-list'},files.map(({file, take}) => h('figure',{key:file},
+          h('a',{href:fileUrl(project.id, file),target:'_blank',rel:'noopener'},h('img',{src:fileUrl(project.id, file),alt:'設定画の候補',loading:'lazy'})),
+          h('figcaption',null,
+            h('button',{type:'button',disabled:busy,onClick:() => act({action:'character',project:project.id,original:character.id,character:{...character,ref_from:file}},'設定画にしました')},'設定画にする'),
+            h('button',{type:'button',disabled:busy,onClick:() => act({action:'removeTake',project:project.id,panel:'@char:' + character.id,take,file})},'消す'))))))
     }
 
     function Characters({data, act, busy}) {
@@ -321,6 +398,12 @@ window.__ModuleLoader__.load({
         data.project.name.characters.map(c => h(CharacterForm,{key:c.id + (c.ref || ''),data,act,busy,character:c})),
         adding ? h(CharacterForm,{data,act,busy,done:() => setAdding(false)})
           : h(Button,{size:'sm',variant:'outline',className:'mg-start',onClick:() => setAdding(true)},'＋ 人物を追加'))
+    }
+
+    function CbzButton({data}) {
+      const [status,setStatus] = React.useState('')
+      return h(React.Fragment,null,
+        h(Button,{size:'sm',variant:'outline',disabled:!!status,onClick:() => exportCbz(data, setStatus).catch(e => setStatus('失敗: ' + e.message))},status || 'CBZ で書き出す'))
     }
 
     function ProjectView({data, act, busy, messages, go}) {
@@ -339,7 +422,8 @@ window.__ModuleLoader__.load({
           analysis.pages.length > 0 && h('div',{className:'mg-toolbar'},
             h('span',{className:'mg-meta'},analysis.pages.length + ' ページ · ' + analysis.pages.reduce((n, p) => n + p.panels.length, 0) + ' コマ · 絵のないコマ ' + missing.length),
             h(Button,{size:'sm',variant:'primary',disabled:busy || !missing.length,
-              onClick:() => act({action:'generate',project:project.id,panels:missing,engine:'anima',count:2},missing.length + ' コマを Anima のキューに入れました')},'絵のないコマを全部描く')),
+              onClick:() => act({action:'generate',project:project.id,panels:missing,engine:'anima',count:2},missing.length + ' コマを Anima のキューに入れました')},'絵のないコマを全部描く'),
+            h(CbzButton,{data})),
           h('div',{className:'mg-spreads'},spreads(analysis.pages).map((pair, i) => h('div',{key:i,className:'mg-spread'},
             pair.map(page => page ? h('button',{key:page.number,type:'button',className:'mg-thumb',onClick:() => go({page:page.number})},
               h(Page,{data,page,small:true}),h('span',null,'P' + page.number)) : h('span',{key:'blank' + i,className:'mg-thumb is-blank'}))))),
@@ -430,6 +514,7 @@ window.__ModuleLoader__.load({
             h(Button,{size:'sm',variant:'outline',className:'mg-start',disabled:busy,onClick:() => act({action:'page',project:project.id,page:number,addPanel:true})},'＋ コマを足す'),
             name.tiers && !name.layout && h('p',{className:'mg-meta'},'段の高さ比: ' + name.tiers.join(' / '))),
           h('div',{className:'mg-card'},h('h3',null,'検査'),h(Issues,{issues:analysis.issues,where:'P' + number})),
+          h(InspectBox,{data,act,busy,page:number}),
           h(LetterBox,{data,act,busy,page:number}),
           h(WriteBox,{data,act,busy,page:number})))
     }
@@ -505,6 +590,8 @@ window.__ModuleLoader__.load({
               h('textarea',{rows:2,value:instruction,autoFocus:true,placeholder:'直し方（英語が確実）例: Make her smile slightly. Remove the extra hand. Add speed lines behind him.',
                 onChange:e => setInstruction(e.target.value)}),
               h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:refs,onChange:e => setRefs(e.target.checked)}),h('span',null,'人物の設定画も渡す')),
+              cast.some(c => c.ref) && h('button',{type:'button',className:'mg-link',onClick:() => { setRefs(true); setInstruction('Make ' + cast.filter(c => c.ref).map(c => c.name || c.id).join(' and ') +
+                ' look exactly like the character sheets (face, hairstyle, outfit). Keep the pose, composition, background and everything else unchanged.') }},'人物を設定画にそろえる（指示を入れる）'),
               h('div',{className:'mg-actions'},
                 h(Button,{size:'sm',variant:'primary',disabled:busy || !instruction.trim(),onClick:async () => {
                   if (await act({action:'edit',project:project.id,panel:panelId,take:take.id,file,instruction,refs},'P-H3 の修正をキューに入れました')) setFixing(null)
@@ -524,6 +611,42 @@ window.__ModuleLoader__.load({
       const [catalog,setCatalog] = React.useState(null)
       React.useEffect(() => { (catalogPromise ??= get('?styles=1')).then(setCatalog).catch(() => { catalogPromise = undefined }) }, [])
       return catalog
+    }
+
+    function InspectBox({data, act, busy, page}) {
+      const {project, analysis} = data
+      const [auto,setAuto] = React.useState(true)
+      const running = project.task?.state === 'running'
+      const placed = analysis.pages.find(p => p.number === page)?.panels || []
+      const results = placed.map(p => [p.id, project.qa?.[p.id]]).filter(([, r]) => r)
+      const loop = project.qaLoop?.page === page ? project.qaLoop : null
+      return h('div',{className:'mg-card'},
+        h('h3',null,'AI で検品'),
+        h('p',{className:'mg-meta'},'Claude が各コマの絵をネーム（人物・人数・動作・小道具・ショット）と設定画に照らして見て、問題のあるコマに直し方を出します。'),
+        h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:auto,disabled:busy || running,onChange:e => setAuto(e.target.checked)}),
+          h('span',null,'問題のあるコマは自動で直し、仕上がったら検品し直す（最大 2 回）')),
+        h('div',{className:'mg-actions'},h(Button,{size:'sm',variant:'primary',disabled:busy || running || !placed.some(p => adoptedFile(project, p.id)),
+          onClick:() => act({action:'inspect',project:project.id,page,auto,rounds:2},'検品を頼みました')},running ? 'AI が作業中' : '検品する'),
+          loop?.waiting?.length > 0 && h('span',{className:'mg-meta'},loop.waiting.length + ' コマを直しています（' + loop.round + ' / ' + (loop.max + 1) + ' 回目の後）')),
+        results.length > 0 && h('ul',{className:'mg-qa-list'},results.map(([id, r]) => h('li',{key:id,className:r.ok ? 'is-ok' : ''},
+          h('b',null,id + ' ' + (r.ok ? '問題なし' : '要確認')),
+          r.problems.length > 0 && h('span',{className:'mg-meta'},' ' + r.problems.join(' / ')),
+          r.file !== adoptedFile(project, id) && h('span',{className:'mg-meta'},'（この後、絵が替わっています）')))))
+    }
+
+    function QaResult({data, panelId, act, busy}) {
+      const {project} = data
+      const r = project.qa?.[panelId]
+      if (!r) return null
+      const current = r.file === adoptedFile(project, panelId)
+      return h('div',{className:'mg-card'},
+        h('h3',null,'検品の結果（' + r.round + ' 回目）' + (current ? '' : ' · 絵が替わったので古い結果')),
+        r.ok ? h('p',{className:'mg-meta'},'問題なし') : h('ul',{className:'mg-qa-list'},r.problems.map((x, i) => h('li',{key:i},x))),
+        !r.ok && r.fix.mode !== 'none' && h(React.Fragment,null,
+          h('p',{className:'mg-prompt'},(r.fix.mode === 'edit' ? 'P-H3 で直す: ' + r.fix.instruction : '描き直す（足すプロンプト）: ' + r.fix.prompt)),
+          h('div',{className:'mg-actions'},
+            h(Button,{size:'sm',variant:'primary',disabled:busy || !current,onClick:() => act({action:'fix',project:project.id,panel:panelId},'直しをキューに入れました')},'提案どおり直す'),
+            r.fix.mode === 'edit' && r.fix.prompt && h(Button,{size:'sm',variant:'outline',disabled:busy,onClick:() => act({action:'fix',project:project.id,panel:panelId,mode:'regenerate'},'描き直しをキューに入れました')},'描き直す'))))
     }
 
     function LetterBox({data, act, busy, page, panels}) {
@@ -657,6 +780,7 @@ window.__ModuleLoader__.load({
               ? [project.render.prefix, placed.anima].filter(Boolean).join(', ') + '\n\nネガティブ: ' + [project.render.negative, placed.avoid].filter(Boolean).join(', ')
               : placed.prompt)),
             messages),
+          h(QaResult,{data,panelId,act,busy}),
           h('div',{className:'mg-card'},h('h3',null,'候補と修正'),h(Takes,{data,panelId,act,busy}))),
         h('div',{className:'mg-side'},h(LetterBox,{data,act,busy,page:number,panels:[panelId]}),h(PanelEditor,{data,panel:name,act,busy}),
           h('div',{className:'mg-card'},h('h3',null,'検査'),h(Issues,{issues:analysis.issues,where:panelId}))))
@@ -764,6 +888,16 @@ window.__ModuleLoader__.load({
         .mg-panel img{width:100%;height:100%;object-fit:cover;display:block}
         .mg-beat{display:block;padding:4px;font-size:max(9px,1.6cqw);line-height:1.35;color:#777;text-align:left;overflow:hidden;height:100%;box-sizing:border-box}
         .mg-badge{position:absolute;right:4px;bottom:4px;font-size:max(9px,1.4cqw);background:rgba(0,0,0,.7);color:#fff;padding:1px 6px;border-radius:999px}
+        .mg-qa{position:absolute;left:4px;top:4px;z-index:4;font-size:max(9px,1.3cqw);background:#c2410c;color:#fff;padding:1px 6px;border-radius:999px}
+        .mg-qa.is-ok{background:#15803d}
+        .mg-qa-list{margin:0;padding-left:18px;display:grid;gap:4px;font-size:13px}
+        .mg-qa-list li.is-ok b{color:var(--dsw-alias-state-success-primary,#15803d)}
+        .mg-sheets{display:grid;gap:8px}
+        .mg-sheet-list{display:flex;flex-wrap:wrap;gap:8px}
+        .mg-sheet-list figure{margin:0;display:grid;gap:4px;width:96px}
+        .mg-sheet-list img{width:96px;height:140px;object-fit:cover;border-radius:6px;border:1px solid var(--dsw-alias-border-l3);background:#fff}
+        .mg-sheet-list figcaption{display:flex;flex-wrap:wrap;gap:4px}
+        .mg-sheet-list figcaption button{border:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base);color:inherit;font:inherit;font-size:11px;border-radius:6px;padding:1px 6px;cursor:pointer}
         .mg-overlay{position:absolute;z-index:3;pointer-events:none;display:block}
         .mg-stagewrap{overflow:hidden;padding:7%;background:#e9e9e9;border-radius:8px}
         .mg-stage{position:relative;width:100%;background:#fff;box-shadow:0 0 0 2px #000;overflow:visible;touch-action:none;user-select:none}

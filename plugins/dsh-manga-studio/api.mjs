@@ -338,6 +338,7 @@ async function writeTask(id, scope, pageIndex, instruction, signal) {
 
 function cancelWrite(id) {
   tasks.get(String(id))?.abort()
+  return withProject(String(id), project => { if (project.qaLoop) project.qaLoop.waiting = [] })
 }
 
 // ---------- panel pictures ----------
@@ -345,6 +346,18 @@ function cancelWrite(id) {
 function findPanel(project, panelId) {
   for (const page of project.name.pages) for (const panel of page.panels || []) if (panel.id === panelId) return {page, panel}
   throw Error('コマが見つかりません: ' + panelId)
+}
+
+// Anima reads at most 512 T5 tokens (about 3.5 English characters each); keep a margin.
+const ANIMA_BUDGET = 1650
+/** The Anima prompt with the added parts kept whole: the panel prompt loses its last sentences until everything fits. */
+function fitAnima(prefix, prompt, extras) {
+  const tail = extras.filter(Boolean).join(', ')
+  let body = String(prompt || '')
+  const room = ANIMA_BUDGET - (prefix || '').length - tail.length - 4
+  while (body.length > room && body.includes('. ')) body = body.slice(0, body.lastIndexOf('. ', body.length - 2) + 1)
+  if (body.length > room) body = body.slice(0, Math.max(0, room))
+  return [prefix, body, tail].filter(Boolean).join(', ')
 }
 
 /** Picture size for a panel: its aspect in real units, about `side`² pixels, multiples of `step`. */
@@ -367,7 +380,8 @@ async function enqueuePanel(project, data, panelId, body) {
   const extra = text(body.extra, '追加のプロンプト', 2000)
   const engine = body.engine === 'ph3' ? 'ph3' : 'anima'
   // Anima reads at most 512 T5 tokens: its prompt is the compact one, the avoid list goes to the negative.
-  const base = [r.prefix, engine === 'anima' ? placed.anima : placed.prompt, panel.extra_prompt, extra].filter(Boolean).join(', ')
+  const base = engine === 'anima' ? fitAnima(r.prefix, placed.anima, [panel.extra_prompt, extra])
+    : [r.prefix, placed.prompt, panel.extra_prompt, extra].filter(Boolean).join(', ')
   const cast = new Map(project.name.characters.map(c => [c.id, c]))
   const inPanel = (panel.characters || []).map(c => cast.get(c.id)).filter(Boolean)
   const take = {id:randomBytes(6).toString('hex'), engine, state:'queued', files:[], created:new Date().toISOString(), prompt:base}
@@ -390,7 +404,9 @@ async function enqueuePanel(project, data, panelId, body) {
                                      count:int(body.count ?? 1, '枚数', 1, 8), seed:body.seed ?? null})
     Object.assign(take, {job:id, width, height, prompt})
   }
+  if (body.autoAdopt) take.autoAdopt = true
   ;(project.takes[panelId] ??= []).unshift(take)
+  pending.add(project.id)
   return take
 }
 
@@ -407,8 +423,12 @@ async function generate(body) {
 
 /** P-H3 edit of one picture of a take: the picture first, then the reference sheets of the panel's characters. */
 async function edit(body) {
-  return withProject(String(body.project), async project => {
-    const panelId = String(body.panel)
+  return withProject(String(body.project), project => editPanel(project, String(body.panel), body))
+}
+
+/** Queues a P-H3 edit of one picture of a panel (the picture first, then the characters' reference sheets). */
+async function editPanel(project, panelId, body) {
+  {
     const {panel} = findPanel(project, panelId)
     const source = (project.takes[panelId] || []).find(t => t.id === body.take)
     const file = source?.files.find(f => f === body.file)
@@ -425,10 +445,11 @@ async function edit(body) {
     const prompt = [instruction, ...lines].join('. ')
     const {id} = await enqueueImage({mode:'edit', prompt, images, width:0, height:0, count:int(body.count ?? 1, '枚数', 1, 4), seed:body.seed ?? null})
     const take = {id:randomBytes(6).toString('hex'), engine:'ph3-edit', job:id, state:'queued', files:[], created:new Date().toISOString(),
-                  prompt, instruction, from:{take:source.id, file}}
+                  prompt, instruction, from:{take:source.id, file}, ...(body.autoAdopt ? {autoAdopt:true} : {})}
     ;(project.takes[panelId] ??= []).unshift(take)
+    pending.add(project.id)
     return take
-  })
+  }
 }
 
 /** Status of a queue job, also after it fell out of the queue's history (status.json and the output folder). */
@@ -461,8 +482,18 @@ async function settleTakes(project) {
       }
       take.state = take.files.length ? 'done' : 'error'
       if (!take.files.length) take.message = '画像が見つかりません'
-      // The first picture of a panel is adopted automatically.
-      if (take.files.length && !project.adopted[panelId]) project.adopted[panelId] = {take:take.id, file:take.files[0]}
+      if (panelId.startsWith('@char:')) {
+        // A character sheet: the first one becomes the character's reference when it has none.
+        const c = project.name.characters.find(c => c.id === panelId.slice(6))
+        if (c && !c.ref && take.files.length) {
+          await mkdir(join(PROJECTS, project.id, 'refs'), {recursive:true})
+          c.ref = c.id + '-' + randomBytes(4).toString('hex') + extname(take.files[0])
+          await copyFile(join(PROJECTS, project.id, 'images', take.files[0]), join(PROJECTS, project.id, 'refs', c.ref))
+        }
+      } else if (take.files.length && (!project.adopted[panelId] || take.autoAdopt)) {
+        // The first picture of a panel is adopted; so is a fix the inspection asked for.
+        project.adopted[panelId] = {take:take.id, file:take.files[0]}
+      }
     } else {
       take.state = job.state === 'cancelled' ? 'cancelled' : 'error'
       take.message = job.message
@@ -481,6 +512,7 @@ async function sweep() {
       await settleTakes(project)
       if (!Object.values(project.takes).flat().some(t => ['queued', 'running'].includes(t.state))) pending.delete(id)
     }).catch(() => pending.delete(id))
+    await continueInspection(id).catch(() => {})
   }
 }
 
@@ -873,6 +905,173 @@ async function runVision(prompt, dir, signal) {
   return String(data.result || '')
 }
 
+// ---------- inspection (検品) and automatic fixes ----------
+
+const QA_SCHEMA = `## 出力
+最後に \`\`\`json で次を 1 つだけ:
+{"panels":[{"id":"コマの id","ok":true|false,"problems":["日本語で具体的に（何が・どこが）"],
+  "fix":{"mode":"none|regenerate|edit","prompt":"描き直すときに足す英語のプロンプト（regenerate）","instruction":"P-H3 で直す英語の指示（edit）"}}],
+ "note":"ページ全体の所見を 1〜3 行（日本語）"}
+- regenerate: 構図・人数・動作・取り違えなど、描き直さないと直らないとき。prompt には欠けているもの・正す点を短い英語で（例: "exactly 3 people, the small young man on the left holds a fork"）。
+- edit: 絵の大半は良く、一部だけ直すとき（余計な文字や吹き出しを消す、手の破綻、表情、小道具の追加、人物を設定画の見た目にそろえる）。instruction は 1〜2 文の英語の命令文。
+- 問題がなければ ok: true、mode: none。好みや細部の粗では落とさない。読者が話を追うのに困る点、人物の取り違え・欠け、主要な小道具や動作の欠け、絵に描かれた文字・吹き出し・ロゴ、目立つ体の破綻だけを問題にする。`
+
+/** Starts the AI inspection of a page: it compares every panel picture with the name and proposes fixes. */
+async function startInspect(body) {
+  const id = String(body.project)
+  if (tasks.has(id)) throw Error('このプロジェクトでは AI が作業中です')
+  const auto = body.auto !== false
+  const rounds = int(body.rounds ?? 2, '直す回数', 0, 3)
+  await withProject(id, project => {
+    const page = int(body.page, 'ページ', 1, project.name.pages.length)
+    project.qaLoop = {page, auto, max:rounds, round:0, waiting:[]}
+    project.task = {state:'running', kind:'P' + page + ' の検品', service:'claude', started:new Date().toISOString()}
+  })
+  runInspection(id)
+  return {ok:true}
+}
+
+function runInspection(id) {
+  const controller = new AbortController()
+  tasks.set(id, controller)
+  inspectTask(id, controller.signal)
+    .catch(async error => withProject(id, project => {
+      if (project.qaLoop) project.qaLoop.waiting = []
+      project.task = {...project.task, state:controller.signal.aborted ? 'cancelled' : 'error',
+                      message:controller.signal.aborted ? '中止しました' : error.message, finished:new Date().toISOString()}
+    }).catch(() => {}))
+    .finally(() => tasks.delete(id))
+}
+
+async function inspectTask(id, signal) {
+  const project = await readProject(id)
+  const loop = project.qaLoop
+  const data = await analyze(project)
+  const page = data.pages.find(p => p.number === loop.page)
+  const name = project.name.pages.find(p => p.number === loop.page)
+  const crops = join(PROJECTS, id, 'crops')
+  await rm(crops, {recursive:true, force:true})
+  await mkdir(crops, {recursive:true})
+  const cast = new Map(project.name.characters.map(c => [c.id, c]))
+  const blocks = []
+  for (const placed of page.panels) {
+    const file = project.adopted?.[placed.id]?.file
+    if (!file) continue
+    const panel = name.panels.find(p => p.id === placed.id)
+    const picture = placed.id.replace(/[^\w.-]/g, '_') + '.png'
+    await run(PYTHON, ['-I', HELPER, 'crop', join(PROJECTS, id, 'images', file), join(crops, picture), String(placed.aspect)], {timeout:60000})
+    const refs = []
+    for (const c of (panel.characters || []).map(c => cast.get(c.id)).filter(c => c?.ref)) {
+      const ref = 'ref-' + c.id.replace(/[^\w.-]/g, '_') + extname(c.ref)
+      await copyFile(join(PROJECTS, id, 'refs', c.ref), join(crops, ref)).catch(() => {})
+      refs.push({name:c.name || c.id, sheet:'./' + ref})
+    }
+    blocks.push({id:placed.id, picture:'./' + picture, beat:panel.beat, visual:panel.visual, shot:panel.shot, angle:panel.angle,
+      place:panel.place_en || panel.place, detail:panel.detail,
+      characters:(panel.characters || []).map(c => ({name:cast.get(c.id)?.name || c.id, appearance:cast.get(c.id)?.appearance, pos:c.pos, pose:c.pose, expression:c.expression})),
+      character_sheets:refs})
+  }
+  if (!blocks.length) throw Error('このページには検品する絵がありません')
+  const prompt = `あなたは漫画の作画の検品係です。各コマの picture（このフォルダの画像。コマの縦横比に切り抜き済み）を Read で必ず見て、ネームの指示どおりに描けているかを確かめてください。` +
+    `character_sheets があれば、その人物の設定画も Read で見て、髪型・服・顔立ちがそろっているかも確かめてください。` +
+    `文字・吹き出し・効果線・頭上の漫符は後から層で載せるので、絵に無くてよい（逆に絵に文字や吹き出しが描かれていたら問題）。\n\n` +
+    `<file path="references/visual-check.md">\n${await readFile(join(SKILL, 'references/visual-check.md'), 'utf8')}\n</file>\n\n` +
+    `## ページ\nP${loop.page}。狙い: ${name.purpose || '—'}。検品 ${loop.round + 1} 回目。\n\n## コマ\n${JSON.stringify(blocks, null, 1)}\n\n${QA_SCHEMA}`
+  const answer = await runVision(prompt, crops, signal)
+  const fenced = [...answer.matchAll(/```(?:json)?\s*\n([\s\S]*?)\n```/g)].map(m => m[1])
+  let value
+  for (const candidate of (fenced.length ? fenced : [answer.slice(answer.indexOf('{'), answer.lastIndexOf('}') + 1)]).reverse()) {
+    try { value = JSON.parse(candidate); break } catch {}
+  }
+  if (!Array.isArray(value?.panels)) throw Error('AI の返答から検品の結果を読み取れませんでした')
+  await withProject(id, async project => {
+    project.qa ??= {}
+    const loop = project.qaLoop
+    const queued = []
+    for (const item of value.panels) {
+      if (!blocks.some(b => b.id === item?.id)) continue
+      const fix = item.fix && typeof item.fix === 'object' ? item.fix : {}
+      const mode = ['regenerate', 'edit'].includes(fix.mode) && item.ok === false ? fix.mode : 'none'
+      const result = {ok:item.ok !== false, problems:(Array.isArray(item.problems) ? item.problems : []).map(x => String(x).slice(0, 300)).slice(0, 8),
+                      fix:{mode, prompt:String(fix.prompt || '').slice(0, 600), instruction:String(fix.instruction || '').slice(0, 600)},
+                      file:project.adopted?.[item.id]?.file, round:loop.round + 1, at:new Date().toISOString()}
+      project.qa[item.id] = result
+      if (loop.auto && loop.round < loop.max && !result.ok && mode !== 'none') {
+        try { queued.push((await applyFix(project, item.id, result)).id) } catch (error) { result.problems.push('自動の直しを入れられませんでした: ' + error.message) }
+      }
+    }
+    const failed = value.panels.filter(p => p?.ok === false).length
+    loop.round += 1
+    loop.waiting = queued
+    project.task = {...project.task, state:'done', finished:new Date().toISOString(),
+      message:`検品 ${loop.round} 回目: ${blocks.length} コマ中 ${failed} コマに問題` + (queued.length ? `。${queued.length} コマを直しています（終わったら検品し直します）` : '') +
+              (value.note ? '\n' + String(value.note).slice(0, 600) : '')}
+  })
+}
+
+/** Queues the fix the inspection proposed: a P-H3 edit of the adopted picture, or a new Anima picture with the added prompt. */
+async function applyFix(project, panelId, result) {
+  if (result.fix.mode === 'edit' && result.fix.instruction) {
+    const adopted = project.adopted?.[panelId]
+    return editPanel(project, panelId, {take:adopted.take, file:adopted.file, instruction:result.fix.instruction, refs:true, autoAdopt:true})
+  }
+  const data = await analyze(project)
+  return enqueuePanel(project, data, panelId, {engine:'anima', count:1, extra:result.fix.prompt, autoAdopt:true})
+}
+
+/** After the automatic fixes of a page are drawn, inspects the page again (up to the loop's limit). */
+async function continueInspection(id) {
+  if (tasks.has(id)) return
+  let again = false
+  await withProject(id, project => {
+    const loop = project.qaLoop
+    if (!loop?.waiting?.length) return
+    const takes = Object.values(project.takes).flat().filter(t => loop.waiting.includes(t.id))
+    if (takes.some(t => ['queued', 'running'].includes(t.state))) return
+    loop.waiting = []
+    if (!takes.some(t => t.state === 'done')) {   // nothing new to look at
+      project.task = {...project.task, message:(project.task?.message || '') + '\n自動の直しが失敗しました: ' +
+        [...new Set(takes.map(t => t.message || t.state))].join(' / ')}
+      return
+    }
+    again = true
+    project.task = {state:'running', kind:'P' + loop.page + ' の検品（' + (loop.round + 1) + ' 回目）', service:'claude', started:new Date().toISOString()}
+  })
+  if (again) runInspection(id)
+}
+
+async function fixFromQa(body) {
+  return withProject(String(body.project), async project => {
+    const result = project.qa?.[body.panel]
+    if (!result || result.fix.mode === 'none') throw Error('このコマに直しの提案はありません')
+    const mode = body.mode === 'edit' || body.mode === 'regenerate' ? body.mode : result.fix.mode
+    const take = await applyFix(project, String(body.panel), {...result, fix:{...result.fix, mode}})
+    return {id:take.id}
+  })
+}
+
+// ---------- character sheets ----------
+
+const SHEET = 'solo, character reference sheet of one person, full body, standing straight, front view, arms relaxed, neutral expression, plain white background'
+const SHEET_NEGATIVE = '2boys, 2girls, multiple boys, multiple girls, multiple views, turnaround, extra people, crowd, cropped'
+
+async function generateSheet(body) {
+  return withProject(String(body.project), async project => {
+    const c = project.name.characters.find(c => c.id === body.character)
+    if (!c) throw Error('人物が見つかりません')
+    if (!c.appearance) throw Error('先に外見（英語）を書いてください')
+    const r = project.render
+    const prompt = [r.prefix, SHEET, c.appearance, project.name.meta.style].filter(Boolean).join(', ')
+    const loras = [...r.loras, ...(c.lora_name ? [{name:c.lora_name, strength:c.lora_strength ?? 1}] : [])].slice(0, 4)
+    const {id} = await enqueueGenerate({prompt, negative:[r.negative, NO_TEXT, SHEET_NEGATIVE].filter(Boolean).join(', '),
+      width:832, height:1216, loras, count:int(body.count ?? 2, '枚数', 1, 4), steps:r.steps, cfg:r.cfg, seed:body.seed ?? null, fp8:true})
+    const take = {id:randomBytes(6).toString('hex'), engine:'anima', job:id, state:'queued', files:[], created:new Date().toISOString(), prompt}
+    ;(project.takes['@char:' + c.id] ??= []).unshift(take)
+    pending.add(project.id)
+    return {id:take.id}
+  })
+}
+
 export function registerMangaApi(web) {
   web.effect(() => web.connection.fetch.register({
     path:'/api/darask.manga', methods:['GET', 'POST'], requestBody:'buffered',
@@ -898,7 +1097,7 @@ export function registerMangaApi(web) {
         const actions = {
           create:createProject, delete:b => deleteProject(b.project), write:startWrite, cancelWrite:b => cancelWrite(b.project),
           settings:updateSettings, character:updateCharacter, page:updatePage, panel:updatePanel,
-          generate, edit, adopt, removeTake, layers:saveLayers, letter:startLetter,
+          generate, edit, adopt, removeTake, layers:saveLayers, letter:startLetter, inspect:startInspect, fix:fixFromQa, sheet:generateSheet,
         }
         const action = actions[body.action]
         if (!action) return reply({error:'不明な操作です'}, 400)
