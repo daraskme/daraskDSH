@@ -6,7 +6,7 @@ import {basename, extname, isAbsolute, join, relative, resolve, sep} from 'node:
 import {defineTool} from '@deepseek-ai/dsh-tools'
 import {cancelJob, enqueueGenerate, enqueueImage, enqueueVideo, jobFiles, jobView, listLoraNames, storePicture} from './jobs.mjs'
 
-export const mediaToolServices = ['workingDirectory']
+export const mediaToolServices = ['tools', 'workingDirectory']
 const TIMEOUT_MS = 60 * 60 * 1000
 const POLL_MS = 2000
 
@@ -67,7 +67,7 @@ const output = {schema:{type:'string'}, render:(_, value) => [{type:'text', text
 export function registerMediaTools(ctx) {
   ctx.tools.register(defineTool({
     name:'image_generate',
-    description:'Generate images on the local GPU and save them into the chat workspace (generated/<job>/). ' +
+    description:'Use this (not ComfyUI) for any image generation or image editing request. Generate images on the local GPU and save them into the chat workspace (generated/<job>/). ' +
       'model "anima": anime-style text to image (Danbooru-style tags work well; negative prompt, steps, cfg and Anima LoRAs by name). ' +
       'model "p-h3": photoreal/general text to image up to 2912x2912 (natural-language English prompts), and with images: ' +
       'mode "edit" edits images[0] following the prompt (other images are references, called <Picture 2>, <Picture 3>...; size defaults to the edited image), ' +
@@ -111,7 +111,7 @@ export function registerMediaTools(ctx) {
 
   ctx.tools.register(defineTool({
     name:'video_generate',
-    description:'Generate a video with sound (MiniMax H3, MP4 at 24 fps) on the local GPU and save it into the chat workspace ' +
+    description:'Use this (not ComfyUI) for any video generation request, including image to video. Generate a video with sound (MiniMax H3, MP4 at 24 fps) on the local GPU and save it into the chat workspace ' +
       '(generated/<job>/). Describe both picture and sound in English. Without pictures it is text to video; first_frame and/or ' +
       'last_frame (workspace image paths) anchor the start/end frame (image to video); references (1-9 workspace image paths) ' +
       'are subjects the prompt names as <Picture 1>, <Picture 2>... Default 1280x704, 124 frames (~5 s); takes about a minute.',

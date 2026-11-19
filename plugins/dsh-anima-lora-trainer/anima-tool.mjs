@@ -12,7 +12,7 @@ const flags = {
 }
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
 
-export const animaToolServices = ['shell', 'shellEnv', 'workingDirectory']
+export const animaToolServices = ['tools', 'shell', 'shellEnv', 'workingDirectory']
 
 export function registerAnimaTool(ctx) {
   ctx.tools.register(defineTool({
