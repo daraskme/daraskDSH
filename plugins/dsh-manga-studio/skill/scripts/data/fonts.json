@@ -1,5 +1,5 @@
 {
- "_comment": "マンガタブの写植・書き文字に使うフォント。すべて Google Fonts（github.com/google/fonts）の SIL Open Font License 1.1。本体は git に入れず fetch_fonts.py で .runtime/manga/fonts に取る（ライセンス文も一緒に置く）。",
+ "_comment": "写植（typeset.py）の台詞・ナレーション・書き文字に使うフォント。すべて Google Fonts（github.com/google/fonts）の SIL Open Font License 1.1。本体は git に入れず fetch_fonts.py で MANGA_FONT_DIR（既定 .fonts/）に取る（ライセンス文も一緒に置く）。use はこの書体を使う書き文字のスタイル（references/sfx-styles.md）。",
  "fonts": [
   {
    "key": "antique",

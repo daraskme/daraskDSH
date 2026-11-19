@@ -7,12 +7,16 @@
 - **ネームを構造化データで持つ。** 1 コマ = 1 レコードの TOML。段（tier）と幅で割ると、右綴じの読み順（段は上から下、段の中は右から左）で配置が決まる。自然文のネームのように、コマの境目・話者・カメラが曖昧にならない。
 - **ネームを機械で検査する。** `scripts/name_lint.py` が、書いた順と配置の読み順の食い違い、めくりの位置、ノド側へのタチキリ、同じショットの連続、顔の寄りと台詞だけの連続、場面の頭で場所を見せていないコマ、吹き出しの字数・行の長さ・数、右の人物から話しているか、話者がコマにいるか、漫符の重なりと連続、成人向けの記号の混入、同じ場面での服の変化、台詞の中の字数の数え違いを拾う。点数は出さない。
 - **ネームが見える。** `scripts/name_render.py` が、コマ割りと吹き出し（縦書き）・人物・漫符の位置を描いたネーム画像を、右綴じの見開きで並べた HTML にする。読者役に渡す台本は、ページの狙いやめくりの設計を落とした版を別に作る。
-- **Darask AI Studio に組み込み済み。** Studio のプラグイン「ネームを作る」「ネームを検査・書き出す」が、このスキルの作法と scripts でネームを切り、検査し、書き出す（Studio の `skills/ja-manga-writing` に写しを置く）。
+- **Darask AI Studio に組み込み済み。** Studio のプラグイン「ネームを作る」「ネームを検査・書き出す」と、プロジェクト → ページ → コマとたどって漫画を作る「マンガ」タブ（ネーム → Anima / P-H3 の絵 → AI 検品 → 写植・演出の層 → PNG / CBZ）が、このスキルの作法と scripts を使う。仕組みの全体は `docs/integrations/darask-studio-manga-tab.md`。
 - **AI っぽくない絵づくり。** 決めコマ（`detail = "key"`）だけ人物も背景もきちんと描き、ほかは線を減らす。白黒は線・ベタ・トーン・白の四つで、灰色の厚塗りをさせない。`references/art-direction.md`。生成した絵の灰の塗りは `scripts/tone_check.py`（Pillow が要る）で測る。
 - **コマ割りの型の保存庫。** よく使う型 30、珍しいが狙いのはっきりした型 12、作者の型を、目的・使う場面・コマごとの中身（各コマの shot の目安）・根拠の強さつきで保存。Manga109-s 全 87 冊のページを型に当てはめて集計した（`scripts/layout_library.py`、`references/layout-library.md`、一覧の絵は `assets/layouts/layouts.png`、型ごとの図（SVG・PNG）と解説は [`assets/layouts/`](assets/layouts/README.md)）。
 - **実際の漫画の数字。** Manga109-s を注釈した 6,741 ページから、コマ数・大ゴマ・人物の大きさ・吹き出し・漫符を場面の種類ごとに集計した（`references/corpus-norms.md`）。
 - **画像生成へそのまま渡せる。** `scripts/name_export.py` が、コマ別のプロンプト（画風ブロックと人物ブロックを全コマ同じ文面に固定）、ページ一括の設計図プロンプト、Krea 2 の `krea_layout_v1`（JSON / BBOX、人物ごとの `lora` 別名と `pose`、台詞の `speakers`）、写植用の文字一覧を書き出す。
 - **漫符・演出・コマ割りの型を厚く持つ。** 漫符は 5 系統（感情の記号／体から出る効果／動きと画面の効果／擬音／文字の描き方）で、形・置き場所・意味・転用・使いすぎを一覧にした。場面の種類から引く「この場面にはこのコマ割り」のパターン集（36 型、ASCII 図と TOML の骨格つき）。
+- **文字と演出は絵に描かせず、層で載せる。** 画像モデルには人物と背景だけを描かせ、吹き出し・台詞・書き文字・効果線（集中線・フラッシュ・スピード線など）・頭上の漫符は、AI が絵を見てから層として置く。`scripts/typeset.py` が層を SVG に組み、文字はフォントの輪郭（縦書きは HarfBuzz の字形）なので文字化けしない。`references/lettering-layers.md`。
+- **書き文字 19 スタイル。** 迫力・威圧・鋭い SE・横太の二重フチ・ポップ・ぽてぽて・描き文字マーカー・べちょ筆・草書・手書きペン・丸文字・電子音・立体・袋文字・震え・静寂・鼓動など。CLIP STUDIO ASSETS の無料の描き文字ブラシの傾向を参考に、フリーフォント（SIL OFL）と加工で作った。`references/sfx-styles.md`、見本は `assets/sfx/sfx-styles.png`。
+- **AI 検品と直しのループ。** 画像を読めるモデルにコマの絵とネーム・設定画を突き合わせさせ、問題のあるコマだけ描き直し・編集して検品し直す（回数に上限）。`references/visual-check.md` §5。
+- **ページの組み立てと CBZ。** `page_compose.py` で絵・枠・層からページを、`make_cbz.py` で右綴じの CBZ を作る。
 - **自分で描いたものを自分で採点しない。** 意図を知らされない読者役・編集役・校閲役を別コンテキストで走らせる。別系統のモデル（Codex CLI など）に見せる手順も同梱。
 - **生成していない絵を「できた」と言わない。** 成果物はネームとプロンプト。生成した絵は検品の表で、読み順 → 人物 → 台詞 → 文字 → 演出 → 体 → 背景の順に見る。
 
@@ -53,15 +57,20 @@ references/         必要なときだけ読む詳細
   characters.md         人物設計と見た目の一貫性
   genres.md             ジャンル契約
   image-generation.md   画像生成への受け渡し（コマ別・ページ一括・krea_layout_v1）
-  visual-check.md       生成した絵の検品
+  visual-check.md       生成した絵の検品（AI に検品させて直しを回す手順も）
+  lettering-layers.md   写植・演出の層（絵に描かせない文字と効果線・漫符、層の書式と置き方）
+  sfx-styles.md         書き文字（擬音）の 19 スタイル
   ai-tells.md           AI のネームに出やすい癖（書いた後に読む）
   formats.md            判型・ページ数・投稿規定・AI の申告と権利
   review-protocol.md    レビューと外部モデル
   longform.md           連載の運用
   roles/                読者役・編集役・校閲役・台帳係（サブエージェント用）
-scripts/            検査・描画・書き出し・プロジェクト管理（Python 標準ライブラリのみ。tone_check.py だけ Pillow）
+scripts/            検査・描画・書き出し・写植・プロジェクト管理（Python 標準ライブラリのみ。tone_check.py は Pillow、typeset.py・page_compose.py は fonttools・uharfbuzz とフォント）
 assets/templates/   プロジェクトの雛形とネームの見本（横開き 2 ページ、4コマ 1 本）
+assets/layouts/     コマ割りの型ごとの図（SVG・PNG）と解説
+assets/sfx/         書き文字のスタイルの見本
 docs/dev/           調査の記録（出典つき）
+docs/integrations/  Darask AI Studio の「マンガ」タブの仕組み
 evals/              スキルの評価用プロンプト
 ```
 
@@ -75,6 +84,12 @@ python scripts/name_export.py assets/templates/name.toml --to krea --out renders
 python scripts/name_export.py assets/templates/name.toml --to krea --layout-prefix ph3 --out renders/ph3
 python scripts/name_export.py assets/templates/name.toml --to page-prompt --out -
 python scripts/name_export.py assets/templates/name.toml --to sections --out -
+python scripts/name_export.py assets/templates/name.toml --to anima --prefix "masterpiece, best quality" --out renders/anima.jsonl
+python scripts/name_export.py assets/templates/name.toml --to layers --out renders/layers.json
+pip install fonttools uharfbuzz && python scripts/fetch_fonts.py      # 写植を使うとき（初回）
+python scripts/typeset.py sample renders/sfx-styles                   # 書き文字の見本（SVG）
+python scripts/page_compose.py assets/templates/name.toml --images renders/panels --layers renders/layers.json --out renders/pages --png
+python scripts/make_cbz.py renders/manga.cbz renders/pages/*.png --title 題名
 python scripts/name_convert.py name.json --out name.toml
 python scripts/init_project.py my-manga --title 題名
 ```

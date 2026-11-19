@@ -45,7 +45,8 @@ AI で作った漫画が「AI っぽい」と言われる原因の多くは、�
 | oneshot | 読切（〜60 ページ）、短い 1 話完結、投稿用 | `notes.md` 1 枚＋ネーム TOML | 最大 1 往復 |
 | serial | 連載、「第 N 話」「続き」、`manga.toml` がある | プロジェクト一式 | 初期化時に最大 3 問 |
 | render | 「画像にして」「プロンプトを」「Krea の JSON に」 | 書き出し（krea / panels / page-prompt / lettering） | 文字の方針とモデルを 1 問（分かれば聞かない） |
-| check | 生成した絵の検品 | 検品メモ（`references/visual-check.md`） | しない |
+| check | 生成した絵の検品 | 検品メモ（`references/visual-check.md`）。AI に検品させて直しを回すなら §5 | しない |
+| letter | 絵ができたコマに、吹き出し・台詞・書き文字・効果線・漫符を載せる（写植・仕上げ） | 層の JSON と、組んだページ（`references/lettering-layers.md`） | しない |
 | revise | 既存のネーム・漫画の講評や直し | 診断 → 承認された深さの直し | 深さを 1 問だけ |
 | analyze | 参考ページ・参考作品の演出や漫符を分析して、作品の演出に取り込みたい | 5 系統の分析表 → 演出シートの案 | しない |
 | consult | 相談、アイデア出し、「どう思う」 | 選択肢とトレードオフ（ネームは切らない） | してよい |
@@ -126,10 +127,13 @@ AI に任せると平均が出る。平均とは、全コマ同じ密度、全�
 ```
 
 ### render
-`references/image-generation.md` に従う。先に `references/art-direction.md` で、各コマの `detail` と `background`、画風ブロックを決める。生成の単位（コマ別 / ページ一括 / bbox で配置）と、文字の方針（`blank` / `in-image`）を決め、`name_export.py` で書き出す。Krea 2 の JSON/BBOX LoRA には `--to krea`（人物の `lora` 別名と `pose`、台詞の `speakers` が入る）、PH3DaraskMix の manga lora には `--to krea --layout-prefix ph3`。書き出した後に「生成した」とは言わない。生成した絵が来たら check。
+`references/image-generation.md` に従う。先に `references/art-direction.md` で、各コマの `detail` と `background`、画風ブロックを決める。生成の単位（コマ別 / ページ一括 / bbox で配置）と、文字の方針（`blank` / `in-image`）を決め、`name_export.py` で書き出す。Krea 2 の JSON/BBOX LoRA には `--to krea`（人物の `lora` 別名と `pose`、台詞の `speakers` が入る）、PH3DaraskMix の manga lora には `--to krea --layout-prefix ph3`。文字と線の演出を絵に描かせない作り方なら `--to anima`（絵のプロンプト）と `--to layers`（層の叩き台）を出す（`references/lettering-layers.md`）。書き出した後に「生成した」とは言わない。生成した絵が来たら check、その後 letter。
 
 ### check
-`references/visual-check.md` の表を、上の層（読み順・人物）から順に見る。Pillow があれば `tone_check.py` で灰の塗りも測る。コマごとに OK / 作り直し / 手で直す / keep と理由。作り直しはネームの欄を直す形で指示する。
+`references/visual-check.md` の表を、上の層（読み順・人物）から順に見る。Pillow があれば `tone_check.py` で灰の塗りも測る。コマごとに OK / 作り直し / 手で直す / keep と理由。作り直しはネームの欄を直す形で指示する。画像を読めるモデルに検品させて直しを回すときは §5（落とすのは話を追えなくなる点だけ、回数に上限）。
+
+### letter
+`references/lettering-layers.md` に従う。各コマの絵を見てから、ネームの台詞・擬音・効果・漫符を層として置く。台詞はネームのとおり、吹き出しは顔と見せ場に重ねない、読む順に、しっぽは話者の口元へ。書き文字のスタイルは `references/sfx-styles.md` から場面で選ぶ。`typeset.py` で SVG、`page_compose.py` でページ、`make_cbz.py` で CBZ。
 
 ### revise
 1. 直す深さを決める:（1）台詞と表記だけ（2）演出まで（カメラ・漫符・吹き出しの配置）（3）コマ割りと構成まで。依頼から分かればその範囲、分からなければ 1 問だけ聞く。
@@ -160,7 +164,9 @@ AI に任せると平均が出る。平均とは、全コマ同じ密度、全�
 | `references/genres.md` | ジャンル契約を決めるとき。該当ジャンルの節だけ | — |
 | `references/art-direction.md` | ネームの最後に `detail`・`background` を付けるとき（§1・§3）、render の前（§2 画風ブロック）、絵が「きれいなのに漫画に見えない」とき、check の層 7 | 話の筋・台詞・コマ割りを決めている間 |
 | `references/image-generation.md` | render | ネームの段階 |
-| `references/visual-check.md` | check、公開前 | ネームの段階 |
+| `references/visual-check.md` | check、公開前、AI に検品させるとき（§5） | ネームの段階 |
+| `references/lettering-layers.md` | letter。絵と層を分ける作り方で render するとき | ネームの段階 |
+| `references/sfx-styles.md` | letter で書き文字のスタイルを選ぶとき、スタイルを足すとき | 擬音の中身を決めるとき（`manpu.md`） |
 | `references/longform.md` | serial | yonkoma・oneshot |
 | `references/formats.md` | 投稿・応募・公開の前、ページ数と原稿の寸法 | 構想中 |
 | `references/ai-tells.md` | 書いた後、lint・通読・レビューで気になった節だけ。revise の診断 | **書く前には読まない** |
@@ -180,6 +186,11 @@ AI に任せると平均が出る。平均とは、全コマ同じ密度、全�
 | `tone_check.py page.png ...` | 生成した白黒ページの灰の塗り（白・黒・中間・なめらかな灰の面）を測り、なめらかな灰の面が 0.005（実際の漫画の上位 5% の少し上）を超えるか、白が 48% 未満なら知らせる（目で確かめる場所の印）。見開きは `--spread` で左右別に。**Pillow が要る**（無ければ飛ばして目で見る） |
 | `name_render.py name.toml --md 台本.md [--reader] / --html ネーム.html / --svg DIR` | 台本（読者用は設計情報を落とす）と、コマ割りの見えるネーム画像（右綴じの見開きで並べる） |
 | `name_export.py name.toml --to krea\|panels\|page-prompt\|lettering\|sections --out ...` | 画像生成と写植への書き出し。krea は krea_layout_v1（絶対座標の JSON と正規化プロンプト、`--krea-repo` で外部の検査も。`--layout-prefix ph3` で PH3DaraskMix の manga lora 向けの ph3_layout_v1）。panels・page-prompt には `detail` と `background` の指示が英語で入る。sections は見出し区切りの文章（title・panelN のプロンプト・ページごとのセリフ・組み立てに渡らない文字の notes）。compose はページを組む道具に渡す画素の配置（JSON） |
+| `name_export.py name.toml --to anima [--prefix …] / --to layers` | 絵と層を分ける作り方の書き出し。anima はコマごとの絵のプロンプト（文字と層で描く演出を外し、T5 512 トークンに収める）とネガティブ、layers はコマの縦横比と層の叩き台（`name_layers.py`） |
+| `typeset.py panel layers.json --aspect A --out panel.svg / styles / sample OUT` | 写植・演出の層を SVG に（文字はパス、縦書きは HarfBuzz の字形）。書き文字 19 スタイル。**fonttools・uharfbuzz とフォント（`fetch_fonts.py`）が要る** |
+| `page_compose.py name.toml --images DIR [--layers L] --out DIR [--png]` | ページを組む（絵をコマ枠に切り抜き、枠線、層）。PNG は rsvg-convert か Chrome があるとき |
+| `make_cbz.py OUT.cbz p*.png --title 題名` | ページを CBZ に（右綴じ・白黒の ComicInfo.xml） |
+| `fetch_fonts.py [--dest DIR]` | 写植のフォント（Google Fonts・SIL OFL）を取る |
 | `name_convert.py name.json --out name.toml` | ネームの JSON と TOML の変換（LLM に JSON で書かせ、人が TOML で直す） |
 | `init_project.py DIR` | 漫画プロジェクトの雛形 |
 | `build_context.py --project DIR --episode N` | その話に要る情報だけを 1 枚に束ねる（confirmed の事実だけ） |

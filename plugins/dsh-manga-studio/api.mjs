@@ -24,7 +24,9 @@ const JOBS = join(ROOT, '.runtime/anima-native/jobs')
 const PYTHON = process.env.DSH_MANGA_PYTHON || 'python3'
 // typeset.py (lettering as SVG paths) needs fonttools + uharfbuzz: .runtime/manga-venv (see README)
 const TYPESET_PYTHON = process.env.DSH_MANGA_TYPESET_PYTHON || join(ROOT, '.runtime/manga-venv/bin/python')
-const TYPESET = join(HERE, 'typeset.py')
+const TYPESET = join(SKILL, 'scripts/typeset.py')
+// Fonts (SIL OFL) fetched with skill/scripts/fetch_fonts.py --dest .runtime/manga/fonts
+const TYPESET_ENV = {...process.env, MANGA_FONT_DIR:process.env.MANGA_FONT_DIR || join(ROOT, '.runtime/manga/fonts')}
 // Anima draws only people and places: lettering, balloons and the line effects come as layers on top.
 const NO_TEXT = 'text, letters, speech bubble, sound effect lettering, signature'
 const SERVICES = ['claude', 'codex', 'google', 'grok', 'cursor', 'muse']
@@ -129,13 +131,11 @@ const analyses = new Map()  // project id -> {hash, data}
 async function analyze(project) {
   const doc = {...project.name, meta:{...project.name.meta}}
   const json = JSON.stringify(doc)
-  const {effects, marks} = await typesetCatalog()
-  const hash = createHash('sha1').update(json + 'overlay-v2').digest('hex')
+  const hash = createHash('sha1').update(json + 'overlay-v3').digest('hex')
   const cached = analyses.get(project.id)
   if (cached?.hash === hash) return cached.data
   if (!doc.pages?.length) return {pages:[], issues:[], stats:{}}
-  // Text, balloons and the effects/marks drawn as layers stay out of the picture prompts.
-  doc.meta.overlay = [...effects, ...marks]
+  // Text, balloons and the effects/marks drawn as layers stay out of the picture prompts (skill/scripts/name_layers.py).
   const file = join(PROJECTS, project.id, 'name.json')
   await writeFile(file, JSON.stringify(doc, null, 1))
   let data
@@ -349,6 +349,7 @@ function findPanel(project, panelId) {
 }
 
 // Anima reads at most 512 T5 tokens (about 3.5 English characters each); keep a margin.
+// Same rule as skill/scripts/name_layers.py (ANIMA_BUDGET, fit_prompt).
 const ANIMA_BUDGET = 1650
 /** The Anima prompt with the added parts kept whole: the panel prompt loses its last sentences until everything fits. */
 function fitAnima(prefix, prompt, extras) {
@@ -680,7 +681,7 @@ async function serveFile(params) {
 let catalog
 /** Sound-effect styles and the effect/mark names typeset.py draws (cached). */
 async function typesetCatalog() {
-  catalog ??= run(TYPESET_PYTHON, ['-I', TYPESET, 'styles'], {timeout:60000}).then(({stdout}) => JSON.parse(stdout))
+  catalog ??= run(TYPESET_PYTHON, ['-I', TYPESET, 'styles'], {timeout:60000, env:TYPESET_ENV}).then(({stdout}) => JSON.parse(stdout))
     .catch(error => { catalog = undefined; throw Error('写植の準備ができていません（.runtime/manga-venv と fonts）: ' + error.message) })
   return catalog
 }
@@ -690,7 +691,7 @@ const waiting = new Map()
 /** The resident typesetter: one JSON line per request. */
 function typeset(panels) {
   if (!worker) {
-    worker = spawn(TYPESET_PYTHON, ['-I', TYPESET, 'serve'], {cwd:HERE, stdio:['pipe', 'pipe', 'pipe']})
+    worker = spawn(TYPESET_PYTHON, ['-I', TYPESET, 'serve'], {cwd:HERE, env:TYPESET_ENV, stdio:['pipe', 'pipe', 'pipe']})
     let buffer = ''
     worker.stdout.on('data', chunk => {
       buffer += chunk

@@ -679,7 +679,8 @@ def to_lettering_csv(doc):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("name")
-    ap.add_argument("--to", required=True, choices=["krea", "panels", "page-prompt", "lettering", "sections", "compose"])
+    ap.add_argument("--to", required=True, choices=["krea", "panels", "page-prompt", "lettering", "sections", "compose", "anima", "layers"])
+    ap.add_argument("--prefix", default="", help="anima: プロンプトの先頭に付ける文（品質タグなど）")
     ap.add_argument("--out", required=True, help="krea はディレクトリ、ほかはファイル（- で標準出力）")
     ap.add_argument("--width", type=int, default=None, help="画像の幅（krea の既定 864、compose の既定 1600）")
     ap.add_argument("--height", type=int, default=None, help="省略時は width × ページの縦横比（16 の倍数に丸める）")
@@ -748,6 +749,28 @@ def main(argv=None):
             (out / "character_adapters.json").write_text(json.dumps(ad, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"{len(prompts)} ページを書き出した: {out}（検査エラーのあるページ {bad}）")
         return 1 if bad else 0
+    if a.to in ("anima", "layers"):
+        import name_layers as nlay
+        pages = nlay.panels(doc)
+        if a.to == "layers":
+            text = json.dumps({"pages": [{k: v for k, v in pg.items() if k != "panels"} | {"panels": [
+                {k: p[k] for k in ("id", "bbox", "aspect", "layers")} for p in pg["panels"]]} for pg in pages]},
+                ensure_ascii=False, indent=1) + "\n"
+        else:
+            rows = []
+            for pg in pages:
+                for p in pg["panels"]:
+                    w, hgt = nlay.panel_size(p["aspect"])
+                    rows.append({"page": pg["number"], "panel": p["id"], "width": w, "height": hgt,
+                                 "prompt": nlay.fit_prompt(a.prefix, p["anima"]),
+                                 "negative": ", ".join(x for x in (p["avoid"], nlay.NO_TEXT) if x)})
+            text = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+        if a.out == "-":
+            sys.stdout.write(text)
+        else:
+            Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(a.out).write_text(text, encoding="utf-8")
+        return 0
     text = {"panels": lambda: to_panels_md(doc, text_mode),
             "page-prompt": lambda: to_page_prompt_md(doc, text_mode),
             "lettering": lambda: to_lettering_csv(doc),

@@ -29,6 +29,18 @@ Qiita・note・aipicks などの実践談、Google の Nano Banana Pro の発表
 | MangaUB の読者層の分類（genre.csv） | 同研究室。public-annotations（revision fd20965） | 作品ごとの読者層（少年・少女・青年・女性）での集計 | CC BY 4.0。集計値に加工して使用。引用: Ikuta, Wohler, Aizawa, "MangaUB: A Manga Understanding Benchmark for Large Multimodal Models", IEEE MultiMedia, 2025 |
 | manga lora の注釈（JSON_BBOX_Lora） | リポジトリの所有者が Manga109-s のページに付けた注釈（漫符・吹き出し・要約） | 承認済み 6,741 ページの集計、型の形 | 元のページは Manga109-s の規約に従う |
 
+## 写植のフォント
+
+`scripts/typeset.py` が使うフォントは、すべて Google Fonts（https://github.com/google/fonts ）の SIL Open Font License 1.1。リポジトリには含めず、`scripts/fetch_fonts.py` が取得するときにライセンス文（`*.OFL.txt`）も一緒に置く。一覧と URL は `scripts/data/fonts.json`: しっぽりアンチック B1、Zen Old Mincho、Dela Gothic One、Reggae One、RocknRoll One、Mochiy Pop One、Darumadrop One、Yusei Magic、Zen Kurenaido、Hachi Maru Pop、DotGothic16、Rampart One、Yuji Boku、Yuji Syuku、Potta One、Yomogi、Train One。
+
+## 参考にした道具・素材（コードと素材は使っていない）
+
+| もの | 参考にしたこと |
+|---|---|
+| CLIP STUDIO ASSETS の無料の描き文字ブラシ（人気順、2026-11 時点） | 書き文字のスタイルの傾向（`references/sfx-styles.md` §2）。ブラシ・素材・見本の絵は使っていない |
+| ComicStudio（https://github.com/CallmeTruong/Comic_Studio ） | 画像を読めるモデルで検品し、直しをプロンプトに戻して回数に上限を付けて描き直す流れ（`references/visual-check.md` §5） |
+| AI Comic Generator、StoryDiffusion、ComicCrafter AI、comic-maker | 設定画の自動生成、人物をコマ間でそろえる、コマ単位で直す、CBZ で書き出す（`docs/integrations/darask-studio-manga-tab.md` §5） |
+
 ## 権利と規定
 
 文化庁「AIと著作権に関する考え方について」（2024-03-15）とチェックリスト&ガイダンス（2024-07-31）、pixiv・BOOTH・Kindle Direct Publishing の告知とヘルプ、新人賞の要項。`references/formats.md` の記載は 2026-11-03 時点の確認内容で、投稿・応募の前に必ず最新の公式情報を確かめること。

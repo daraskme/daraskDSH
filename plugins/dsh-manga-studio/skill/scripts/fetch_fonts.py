@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
-"""fonts.json のフォント（SIL OFL）とライセンス文を .runtime/manga/fonts に取る。あるものは飛ばす."""
+"""data/fonts.json のフォント（SIL OFL、Google Fonts）とライセンス文を取る。あるものは飛ばす.
+
+  python fetch_fonts.py [--dest DIR]     既定は MANGA_FONT_DIR か、このリポジトリの .fonts/
+"""
+import argparse
 import json
+import os
 import sys
 import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEST = HERE.parent.parent / ".runtime" / "manga" / "fonts"
 
 
-def main():
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--dest", default=os.environ.get("MANGA_FONT_DIR") or str(HERE.parent / ".fonts"))
+    a = ap.parse_args(argv)
+    DEST = Path(a.dest)
     DEST.mkdir(parents=True, exist_ok=True)
-    for font in json.loads((HERE / "fonts.json").read_text(encoding="utf-8"))["fonts"]:
+    for font in json.loads((HERE / "data" / "fonts.json").read_text(encoding="utf-8"))["fonts"]:
         for url, name in ((font["url"], font["file"]), (font["license_url"], Path(font["url"]).parent.name + ".OFL.txt")):
             path = DEST / name
             if path.exists() and path.stat().st_size:

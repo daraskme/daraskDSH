@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""写植・演出の層をコマごとの SVG（文字もすべてパス）に組む.
+"""写植・演出の層をコマごとの SVG（文字もすべてパス）に組む. 層の書式と置き方は references/lettering-layers.md、
+書き文字のスタイルは references/sfx-styles.md.
 
+  python typeset.py panel LAYERS.json --aspect 1.6 --out panel.svg   1 コマの層を SVG に（LAYERS.json は層の配列）
   python typeset.py serve          1 行 1 JSON の依頼 {id, panels: [{aspect, layers, seed}]} を読み、
-                                   {id, panels: [{svg, boxes}]} を 1 行で返す（DSH が常駐させる）
-  python typeset.py styles         書き文字のスタイル一覧（JSON）
-  python typeset.py sample OUT.png 全スタイルの見本
+                                   {id, panels: [{svg, boxes}]} を 1 行で返す（アプリが常駐させる）
+  python typeset.py styles         書き文字のスタイルと、層で描ける効果・漫符の一覧（JSON）
+  python typeset.py sample OUT     全スタイルの見本（OUT.svg）
+
+要るもの: fonttools・uharfbuzz（pip install fonttools uharfbuzz）と、fetch_fonts.py で取るフォント。
 
 座標: コマの幅を 1000 とし、高さは 1000 / aspect（aspect = 横/縦）。層の x・y・w・h はコマの中の割合。
 SVG の viewBox はコマの外に PAD ずつ広げてある（吹き出しの枠越え）。効果はコマの中で切る。
 文字はフォントの輪郭をパスにする（HarfBuzz で縦書きの字形 vert を選ぶ）ので、どの端末でも同じに見える。
-フォントは .runtime/manga/fonts（fonts.json の一覧を fetch_fonts.py で取得。すべて SIL OFL）。
+フォントは MANGA_FONT_DIR（既定はこのリポジトリの .fonts/）。一覧は data/fonts.json（すべて SIL OFL）。
 """
 import hashlib
 import json
@@ -24,9 +28,11 @@ from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
 from fontTools.ttLib import TTFont
 
+import os
+
 HERE = Path(__file__).resolve().parent
-FONT_DIR = HERE.parent.parent / ".runtime" / "manga" / "fonts"
-FONTS = {f["key"]: f for f in json.loads((HERE / "fonts.json").read_text(encoding="utf-8"))["fonts"]}
+FONT_DIR = Path(os.environ.get("MANGA_FONT_DIR") or HERE.parent / ".fonts")
+FONTS = {f["key"]: f for f in json.loads((HERE / "data" / "fonts.json").read_text(encoding="utf-8"))["fonts"]}
 PAD = 0.15
 FALLBACK = ["dela", "antique", "mochiy"]
 
@@ -663,7 +669,8 @@ def render(panel):
     seed = panel.get("seed", "")
     layers = panel.get("layers") or []
     parts, boxes = [], [None] * len(layers)
-    clip = f'<clipPath id="c"><rect x="0" y="0" width="{f(W)}" height="{f(H)}"/></clipPath>'
+    cid = "c" + hashlib.sha1(str(seed).encode()).hexdigest()[:8]   # ページに並べても衝突しない id
+    clip = f'<clipPath id="{cid}"><rect x="0" y="0" width="{f(W)}" height="{f(H)}"/></clipPath>'
     for i in sorted(range(len(layers)), key=lambda i: ORDER.get(layers[i].get("type"), 5)):
         layer = layers[i]
         kind = layer.get("type")
@@ -675,7 +682,7 @@ def render(panel):
             print(f"typeset: {kind}: {e}", file=sys.stderr)
             continue
         if kind == "effect":
-            svg = f'<g clip-path="url(#c)">{svg}</g>'
+            svg = f'<g clip-path="url(#{cid})">{svg}</g>'
         parts.append(svg)
         boxes[i] = [round(box[0] / W, 4), round(box[1] / H, 4), round(box[2] / W, 4), round(box[3] / H, 4)]
     vb = f"{f(-PAD * W)} {f(-PAD * H)} {f(W * (1 + 2 * PAD))} {f(H * (1 + 2 * PAD))}"
@@ -684,13 +691,8 @@ def render(panel):
     return {"svg": svg, "boxes": boxes}
 
 
-EFFECTS = ["focus_lines", "beta_flash", "uni_flash", "speed_lines", "wind_lines", "impact_burst", "emphasis_lines",
-           "gloom_lines", "falling_lines", "rain_lines", "lightning_shock", "rivalry_sparks", "sparkle_background",
-           "impact_stars", "rage_zigzag", "falling_petals", "snowfall", "confetti", "embers_sparks", "falling_leaves", "light_rays"]
-MARKS = ["sweat_drops", "single_sweat", "droplets_splash", "sweat_spray", "anger_vein", "floating_hearts", "broken_heart",
-         "pulse_marks", "surprise_ticks", "joy_burst", "flinch_spike", "shock_spikes", "squiggle_cloud", "dizzy_swirl",
-         "daze_bubbles", "thought_dots", "steam_breath", "sigh_puff", "breath_puff", "fluster_arcs", "lightbulb", "sparkles",
-         "status_sigil", *GLYPH_MARKS]
+_OVERLAY = json.loads((HERE / "data" / "overlay.json").read_text(encoding="utf-8"))
+EFFECTS, MARKS = _OVERLAY["effects"], _OVERLAY["marks"]
 
 
 def styles():
@@ -723,6 +725,20 @@ def sample(out):
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "panel" and len(sys.argv) >= 3:
+        import argparse
+        ap = argparse.ArgumentParser()
+        ap.add_argument("cmd")
+        ap.add_argument("layers")
+        ap.add_argument("--aspect", type=float, required=True, help="コマの横/縦（実寸）")
+        ap.add_argument("--out", required=True)
+        ap.add_argument("--seed", default="")
+        a = ap.parse_args()
+        layers = json.loads(Path(a.layers).read_text(encoding="utf-8"))
+        res = render({"aspect": a.aspect, "layers": layers, "seed": a.seed})
+        Path(a.out).write_text(res["svg"], encoding="utf-8")
+        print(json.dumps(res["boxes"]))
+        return 0
     if cmd == "serve":
         for line in sys.stdin:
             try:
@@ -739,7 +755,7 @@ def main():
     if cmd == "sample" and len(sys.argv) == 3:
         sample(sys.argv[2])
         return 0
-    print("使い方: typeset.py serve | styles | sample OUT", file=sys.stderr)
+    print("使い方: typeset.py panel LAYERS.json --aspect A --out OUT.svg | serve | styles | sample OUT", file=sys.stderr)
     return 2
 
 
