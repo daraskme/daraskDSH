@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 771" width="500" height="771" font-family="'Noto Sans CJK JP','Hiragino Sans','Yu Gothic',Meiryo,sans-serif">
+<title>C17 3 段 5 コマ・3 コマ目が大</title>
+<rect width="500" height="771" fill="#fff"/>
+<text x="12" y="26" font-size="17" font-weight="700" fill="#111">C17　3 段 5 コマ・3 コマ目が大</text>
+<text x="12" y="50" font-size="11" fill="#555">よく使う型　5 コマ　実例 184 ページ・60 冊（根拠: 強い）　会話・説明・ギャグ</text>
+<rect x="0.5" y="64.5" width="499" height="706" fill="#fafafa" stroke="#ccc"/>
+<rect x="36.3" y="318.0" width="428.7" height="203.0" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="443.0" cy="340.0" r="15" fill="#111"/>
+<text x="443.0" y="346.0" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<text x="250.6" y="425.5" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="250.9" y="106.4" width="214.1" height="198.1" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="443.0" cy="128.4" r="15" fill="#111"/>
+<text x="443.0" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<text x="357.9" y="211.4" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="35.4" y="106.4" width="211.1" height="198.7" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="224.6" cy="128.4" r="15" fill="#111"/>
+<text x="224.6" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<text x="141.0" y="211.8" font-size="15" fill="#888" text-anchor="middle">バストアップ</text>
+<rect x="35.4" y="533.3" width="217.2" height="188.2" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="230.6" cy="555.3" r="15" fill="#111"/>
+<text x="230.6" y="561.3" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+<text x="144.0" y="633.4" font-size="15" fill="#888" text-anchor="middle">バストアップ</text>
+<rect x="257.7" y="533.3" width="206.0" height="187.0" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="441.7" cy="555.3" r="15" fill="#111"/>
+<text x="441.7" y="561.3" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<text x="360.7" y="632.8" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+</svg>

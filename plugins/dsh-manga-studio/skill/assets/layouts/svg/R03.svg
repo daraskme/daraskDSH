@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 771" width="500" height="771" font-family="'Noto Sans CJK JP','Hiragino Sans','Yu Gothic',Meiryo,sans-serif">
+<title>R03 右の縦長 1 枚を背骨に、左で小刻みに進める</title>
+<rect width="500" height="771" fill="#fff"/>
+<text x="12" y="26" font-size="17" font-weight="700" fill="#111">R03　右の縦長 1 枚を背骨に、左で小刻みに進める</text>
+<text x="12" y="50" font-size="11" fill="#555">珍しいが狙いのはっきりした型　7 コマ　実例 1 ページ・1 冊（根拠: 実例ほぼなし）　感情・恋愛・静けさ</text>
+<rect x="0.5" y="64.5" width="499" height="706" fill="#fafafa" stroke="#ccc"/>
+<rect x="273.2" y="106.4" width="191.8" height="613.2" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="443.0" cy="128.4" r="15" fill="#111"/>
+<text x="443.0" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<rect x="64.7" y="252.8" width="200.4" height="208.5" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="243.1" cy="274.8" r="15" fill="#111"/>
+<text x="243.1" y="280.8" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<rect x="67.7" y="106.4" width="199.1" height="134.7" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="244.8" cy="128.4" r="15" fill="#111"/>
+<text x="244.8" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<rect x="35.0" y="555.4" width="118.2" height="164.8" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="131.2" cy="577.4" r="15" fill="#111"/>
+<text x="131.2" y="583.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">7</text>
+<rect x="63.4" y="472.4" width="200.8" height="72.6" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="242.2" cy="494.4" r="15" fill="#111"/>
+<text x="242.2" y="500.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<rect x="159.3" y="553.6" width="104.5" height="83.0" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="241.8" cy="575.6" r="15" fill="#111"/>
+<text x="241.8" y="581.6" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+<rect x="156.7" y="647.1" width="107.1" height="74.4" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="241.8" cy="669.1" r="15" fill="#111"/>
+<text x="241.8" y="675.1" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">6</text>
+</svg>

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 771" width="500" height="771" font-family="'Noto Sans CJK JP','Hiragino Sans','Yu Gothic',Meiryo,sans-serif">
+<title>R10 左の縦長が上のコマに食い込む</title>
+<rect width="500" height="771" fill="#fff"/>
+<text x="12" y="26" font-size="17" font-weight="700" fill="#111">R10　左の縦長が上のコマに食い込む</text>
+<text x="12" y="50" font-size="11" fill="#555">珍しいが狙いのはっきりした型　4 コマ　実例 20 ページ・16 冊（根拠: 弱い）　動き・戦い・スポーツ・会話・説明</text>
+<rect x="0.5" y="64.5" width="499" height="706" fill="#fafafa" stroke="#ccc"/>
+<rect x="59.5" y="106.4" width="404.6" height="274.9" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="442.1" cy="128.4" r="15" fill="#111"/>
+<text x="442.1" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<text x="261.8" y="249.9" font-size="15" fill="#888" text-anchor="middle">バストアップ</text>
+<rect x="35.0" y="292.8" width="199.9" height="428.7" fill="#dbeafe" stroke="#111" stroke-width="3"/>
+<circle cx="212.9" cy="314.8" r="15" fill="#111"/>
+<text x="212.9" y="320.8" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<text x="135.0" y="513.2" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="154.5" y="470.6" width="310.5" height="249.1" fill="#dbeafe" stroke="#111" stroke-width="3"/>
+<circle cx="443.0" cy="492.6" r="15" fill="#111"/>
+<text x="443.0" y="498.6" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<text x="309.8" y="601.1" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="60.4" y="370.3" width="369.4" height="100.3" fill="#dbeafe" stroke="#111" stroke-width="3"/>
+<circle cx="407.7" cy="392.3" r="15" fill="#111"/>
+<text x="407.7" y="398.3" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<text x="245.1" y="426.4" font-size="15" fill="#888" text-anchor="middle">アップ</text>
+</svg>

@@ -1,0 +1,1076 @@
+{
+  "_comment": "漫符・効果の語彙表。key は name TOML で使う名前。krea_kind は krea_layout_v1 の kind（KNOWN_KINDS）への対応、prompt は英語の画像生成用の短い記述、place は既定の置き場所（head=頭の周り、face=顔の上、body=体の周り、panel=コマ全体、background=人物の背後）。aliases は日本語の別名。意味と使いどころは references/manpu.md。 rating=adult の項目は成人向けの定型で、作品の rating が adult でないと name_lint が M04 で知らせる。 2026-11-15: manga lora（JSON_BBOX_Lora）の語彙表 04_台帳/漫符の語彙.csv と同期（Manga109-s の注釈で見つかった記号を含む。2026-11-16 時点で 108 項目）。",
+  "marks": {
+    "sweat_drops": {
+      "ja": "汗（冷や汗・焦り）",
+      "aliases": [
+        "汗",
+        "冷や汗",
+        "焦り汗"
+      ],
+      "krea_kind": "sweat_drops",
+      "place": "head",
+      "prompt": "a few large sweat drops beside the head"
+    },
+    "sweat_sheen": {
+      "ja": "汗ばみ（肌のつや汗）",
+      "aliases": [
+        "汗ばみ",
+        "脂汗"
+      ],
+      "krea_kind": "sweat_sheen",
+      "place": "face",
+      "prompt": "glistening sweat sheen on the skin"
+    },
+    "droplets_splash": {
+      "ja": "飛び散る汗・水滴",
+      "aliases": [
+        "飛び汗",
+        "飛沫"
+      ],
+      "krea_kind": "droplets_splash",
+      "place": "head",
+      "prompt": "sweat droplets flying off the head"
+    },
+    "steam_breath": {
+      "ja": "湯気・荒い吐息（怒り・興奮・疲労）",
+      "aliases": [
+        "湯気",
+        "吐息",
+        "ぷんすか"
+      ],
+      "krea_kind": "steam_breath",
+      "place": "head",
+      "prompt": "puffs of steam rising from the head"
+    },
+    "heavy_blush": {
+      "ja": "赤面（頬の斜線）",
+      "aliases": [
+        "赤面",
+        "照れ",
+        "頬斜線"
+      ],
+      "krea_kind": "heavy_blush",
+      "place": "face",
+      "prompt": "heavy blush lines across the cheeks"
+    },
+    "trembling_lines": {
+      "ja": "震え線（恐怖・寒さ・緊張）",
+      "aliases": [
+        "震え",
+        "ぷるぷる"
+      ],
+      "krea_kind": "trembling_lines",
+      "place": "body",
+      "prompt": "small trembling lines around the body"
+    },
+    "vibration_marks": {
+      "ja": "振動の線（物・体の揺れ）",
+      "aliases": [
+        "振動",
+        "ガタガタ"
+      ],
+      "krea_kind": "vibration_marks",
+      "place": "body",
+      "prompt": "vibration marks around the shaking object"
+    },
+    "floating_hearts": {
+      "ja": "浮かぶハート（好意・うっとり）",
+      "aliases": [
+        "ハート"
+      ],
+      "krea_kind": "floating_hearts",
+      "place": "head",
+      "prompt": "small floating hearts around the head"
+    },
+    "heart_in_eyes": {
+      "ja": "目がハート",
+      "aliases": [
+        "ハート目"
+      ],
+      "krea_kind": "heart_in_eyes",
+      "place": "face",
+      "prompt": "heart-shaped pupils"
+    },
+    "surprise_mark": {
+      "ja": "びっくりマーク（！）",
+      "aliases": [
+        "！",
+        "びっくり",
+        "驚き"
+      ],
+      "krea_kind": "surprise_mark",
+      "place": "head",
+      "prompt": "an exclamation mark above the head"
+    },
+    "question_mark": {
+      "ja": "はてなマーク（？）",
+      "aliases": [
+        "？",
+        "はてな",
+        "疑問"
+      ],
+      "krea_kind": "question_mark",
+      "place": "head",
+      "prompt": "a question mark above the head"
+    },
+    "anger_vein": {
+      "ja": "怒りマーク（青筋）",
+      "aliases": [
+        "怒りマーク",
+        "青筋",
+        "怒り"
+      ],
+      "krea_kind": "anger_vein",
+      "place": "head",
+      "prompt": "a cross-shaped anger vein mark on the forehead"
+    },
+    "dizzy_eyes": {
+      "ja": "ぐるぐる目（混乱・目が回る）",
+      "aliases": [
+        "ぐるぐる目",
+        "目回し",
+        "混乱",
+        "目眩の渦",
+        "渦"
+      ],
+      "krea_kind": "dizzy_eyes",
+      "place": "face",
+      "prompt": "spiral dizzy eyes"
+    },
+    "gloom_lines": {
+      "ja": "縦線（落ち込み・どんより・ドン引き）",
+      "aliases": [
+        "縦線",
+        "どんより",
+        "ガーン"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "vertical gloom lines above the head"
+    },
+    "tears": {
+      "ja": "涙（滝涙・涙目を含む）",
+      "aliases": [
+        "涙",
+        "滝涙",
+        "涙目"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "streams of tears"
+    },
+    "music_notes": {
+      "ja": "音符（上機嫌・鼻歌）",
+      "aliases": [
+        "音符",
+        "♪",
+        "ルンルン"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "small musical notes floating near the head"
+    },
+    "sparkles": {
+      "ja": "キラキラ（期待・自信・美化）",
+      "aliases": [
+        "キラキラ",
+        "きらめき"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "sparkles around the character"
+    },
+    "lightbulb": {
+      "ja": "ひらめき（電球・ピコーン）",
+      "aliases": [
+        "ひらめき",
+        "電球"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "a small light bulb flash above the head"
+    },
+    "sleep_bubble": {
+      "ja": "鼻ちょうちん・Zzz（居眠り）",
+      "aliases": [
+        "鼻ちょうちん",
+        "Zzz",
+        "居眠り"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "a snot bubble and floating Z letters for sleeping"
+    },
+    "soul_out": {
+      "ja": "魂が抜ける（放心・燃え尽き）",
+      "aliases": [
+        "魂抜け",
+        "放心"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "a small ghostly soul floating out of the mouth"
+    },
+    "sigh_puff": {
+      "ja": "ため息の吹き出し（ふぅ）",
+      "aliases": [
+        "ため息"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "a small puff of breath for a sigh"
+    },
+    "pulse_marks": {
+      "ja": "ドキッ・心拍のマーク（緊張・ときめき）",
+      "aliases": [
+        "ドキッ",
+        "心拍",
+        "ドキドキ",
+        "高鳴り"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "short radiating pulse marks near the chest"
+    },
+    "flower_background": {
+      "ja": "花背負い（うっとり・美化の背景）",
+      "aliases": [
+        "花背負い",
+        "背景の花"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "decorative flowers in the background behind the character"
+    },
+    "shock_spikes": {
+      "ja": "衝撃のトゲ・稲妻（頭上のギザ、髪が逆立つ）",
+      "aliases": [
+        "稲妻",
+        "ガビーン",
+        "トゲ"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "jagged lightning spikes above the head, hair standing on end"
+    },
+    "sweat_spray": {
+      "ja": "体に散る汗の粒（熱・興奮）",
+      "aliases": [
+        "汗の粒",
+        "汗粒"
+      ],
+      "krea_kind": "droplets_splash",
+      "place": "body",
+      "prompt": "small sweat beads scattered over the body"
+    },
+    "nosebleed": {
+      "ja": "鼻血（興奮のギャグ表現）",
+      "aliases": [
+        "鼻血"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "a comedic nosebleed"
+    },
+    "status_sigil": {
+      "ja": "状態の紋（頭上の魔法陣・光輪・バフの印）",
+      "aliases": [
+        "魔法陣",
+        "光輪",
+        "紋"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "a small glowing magic circle above the head"
+    },
+    "single_sweat": {
+      "ja": "大きな一粒の汗（気まずさ・あきれ）",
+      "aliases": [
+        "一粒の汗",
+        "大汗"
+      ],
+      "krea_kind": "sweat_drops",
+      "place": "head",
+      "prompt": "a single large sweat drop beside the head"
+    },
+    "pale_lines": {
+      "ja": "青ざめ（顔にかかる縦線）",
+      "aliases": [
+        "青ざめ",
+        "青線"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "vertical pale lines over the face"
+    },
+    "broken_heart": {
+      "ja": "割れたハート（失恋・ショック）",
+      "aliases": [
+        "割れたハート",
+        "失恋"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "a cracked heart symbol"
+    },
+    "multiple_questions": {
+      "ja": "頭上に複数の？（状況が飲み込めない）",
+      "aliases": [
+        "？？？",
+        "はてなの連続"
+      ],
+      "krea_kind": "question_mark",
+      "place": "head",
+      "prompt": "several question marks above the head"
+    },
+    "surprise_question": {
+      "ja": "！？（驚きと疑問が同時）",
+      "aliases": [
+        "！？"
+      ],
+      "krea_kind": "surprise_mark",
+      "place": "head",
+      "prompt": "an exclamation and question mark above the head"
+    },
+    "dizzy_swirl": {
+      "ja": "頭上の渦・輪（目まい・クラクラ）",
+      "aliases": [
+        "クラクラ",
+        "目まい"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "a spinning swirl above the head"
+    },
+    "star_eyes": {
+      "ja": "目が星（憧れ・興味）",
+      "aliases": [
+        "目が星",
+        "キラキラ目"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "star-shaped sparkles in the eyes"
+    },
+    "blank_eyes": {
+      "ja": "白目（ギャグの驚き・放心）",
+      "aliases": [],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "blank white eyes for comic shock"
+    },
+    "welling_tears": {
+      "ja": "目に浮かぶ涙（うるうる）",
+      "aliases": [
+        "うるうる"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "small tears welling in the eyes"
+    },
+    "surprise_ticks": {
+      "ja": "驚きの短い線（頭の横・上に出る数本の線、気づき・びくっ）",
+      "aliases": [
+        "ハッ",
+        "びくっ",
+        "気付き線",
+        "驚き線"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "short radiating surprise lines beside the head"
+    },
+    "squiggle_cloud": {
+      "ja": "もやもや（頭上のぐちゃぐちゃ線、苛立ち・混乱）",
+      "aliases": [
+        "もやもや",
+        "ぐちゃぐちゃ線"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "a tangled scribble above the head"
+    },
+    "silence_dots": {
+      "ja": "沈黙の「…」（顔の横に浮かぶ点）",
+      "aliases": [
+        "沈黙の点",
+        "…"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "floating ellipsis dots beside the face for a speechless silence"
+    },
+    "rivalry_sparks": {
+      "ja": "バチバチの火花（にらみ合い）",
+      "aliases": [
+        "バチバチ",
+        "火花",
+        "にらみ合い"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "crackling sparks between two glaring characters"
+    },
+    "pale_hatching": {
+      "ja": "青ざめ（顔にかかる横・斜めの線）",
+      "aliases": [
+        "青ざめの斜線",
+        "顔の斜線"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "horizontal or diagonal pale lines across the face"
+    },
+    "shaded_eyes": {
+      "ja": "目元の影（顔の上半分にかかる暗い影、威圧・不気味・絶望）",
+      "aliases": [
+        "目元の影",
+        "顔の影"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "a dark shadow cast over the upper half of the face"
+    },
+    "rage_zigzag": {
+      "ja": "怒りのギザギザ線（怒った人物のまわりの空中に広がる黒いギザギザ）",
+      "aliases": [
+        "怒りのギザギザ"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "jagged black zigzag lines radiating around an angry character"
+    },
+    "daze_bubbles": {
+      "ja": "放心の泡（ぼーっとした顔の横に縦に並んで浮かぶ小さな丸）",
+      "aliases": [
+        "放心の泡"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "a column of small round bubbles floating beside a dazed face"
+    },
+    "squeezed_eyes": {
+      "ja": "ぎゅっと閉じた目（＞＜、力み・笑い・痛み）",
+      "aliases": [
+        "＞＜",
+        "ぎゅっと閉じた目"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "eyes squeezed shut into > < shapes"
+    },
+    "x_eyes": {
+      "ja": "×目（ばつ印の目、気絶・ギャグのやられ）",
+      "aliases": [
+        "×目",
+        "ばつ目"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "eyes drawn as x marks"
+    },
+    "t_crying_eyes": {
+      "ja": "T_T の泣き目（目から流れる 2 本の涙の筋）",
+      "aliases": [
+        "T_T",
+        "泣き目"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "T-shaped crying eyes with two streams of tears"
+    },
+    "tiny_pupils": {
+      "ja": "点のように縮んだ瞳（驚き・恐怖）",
+      "aliases": [
+        "点目の瞳",
+        "縮んだ瞳"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "pupils shrunk to tiny dots in shock"
+    },
+    "ring_pupils": {
+      "ja": "同心円の瞳（驚愕・放心・催眠）",
+      "aliases": [
+        "渦の瞳",
+        "同心円の瞳"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "concentric ring pupils"
+    },
+    "drool": {
+      "ja": "よだれ（ギャグ・放心・食いしん坊。性的でないもの）",
+      "aliases": [],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "a comic drop of drool at the corner of the mouth"
+    },
+    "sleep_zzz": {
+      "ja": "Zzz（居眠りの浮かぶ Z、鼻ちょうちん無し）",
+      "aliases": [],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "floating Z letters for sleeping"
+    },
+    "snot_bubble": {
+      "ja": "鼻ちょうちん（Z 無し）",
+      "aliases": [],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "a snot bubble swelling from the nose of a dozing character"
+    },
+    "thought_dots": {
+      "ja": "空想へつながる小さな丸の列（夢・想像の吹き出しの尻尾）",
+      "aliases": [
+        "空想の丸"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "a trail of small circles rising toward a daydream"
+    },
+    "sparkle_background": {
+      "ja": "キラキラの背景（華やか・憧れ）",
+      "aliases": [
+        "キラキラ背景"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "a sparkling background behind the character"
+    },
+    "bubble_background": {
+      "ja": "泡・水玉の背景（ふんわり・夢見心地）",
+      "aliases": [
+        "泡の背景",
+        "水玉背景"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "soft round bubbles floating in the background"
+    },
+    "fire_aura": {
+      "ja": "燃える闘志（背景の炎）",
+      "aliases": [
+        "燃える闘志",
+        "炎の背景"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "flames rising behind the character"
+    },
+    "dark_aura": {
+      "ja": "暗いオーラ（不穏・怒り・落ち込み）",
+      "aliases": [
+        "暗いオーラ",
+        "黒いオーラ"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "a dark wavy aura around the character"
+    },
+    "lightning_shock": {
+      "ja": "ガーン（背景の稲妻）",
+      "aliases": [
+        "背景の稲妻"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "a lightning bolt behind the character for shock"
+    },
+    "heart_background": {
+      "ja": "大きなハートの背景（ときめき・ラブラブの場面）",
+      "aliases": [
+        "ハートの背景"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "large hearts filling the background behind the characters"
+    },
+    "fluster_arcs": {
+      "ja": "あたふたの弧（頭のまわりの小さな弧・「つ」形の巻き線、動揺・忙しさ）",
+      "aliases": [
+        "あたふた",
+        "あたふたの弧"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "small curved strokes around the head showing fluster"
+    },
+    "flinch_spike": {
+      "ja": "ビクッのギザギザ（頭の上・横の 1 本の小さなギザギザ線。髪は逆立たない）",
+      "aliases": [
+        "ビクッ",
+        "びくっのギザギザ"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "a single small jagged mark beside the head for a startled flinch"
+    },
+    "joy_burst": {
+      "ja": "喜びの放射（頭のまわりにパァッと出る短い線、照れ笑い・うれしさ。驚きではない）",
+      "aliases": [
+        "パァッ",
+        "喜びの放射"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "short bright lines bursting around the head in delight"
+    },
+    "cross_marks": {
+      "ja": "「#」形の交差線（頭の横の苛立ち・ぴきっ。青筋の怒りマーク以外）",
+      "aliases": [
+        "ぴきっ",
+        "#形の線"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "head",
+      "prompt": "small hash-shaped crossed lines beside the head showing irritation"
+    },
+    "eye_glow": {
+      "ja": "光る目（目が光る・目から伸びる光の筋）",
+      "aliases": [
+        "光る目"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "glowing eyes with streaks of light trailing from them"
+    },
+    "breath_puff": {
+      "ja": "小さな吐息（寝息・口笛・あくび・白い息。ため息は sigh_puff）",
+      "aliases": [
+        "寝息",
+        "白い息"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "a small puff of breath drifting from the mouth"
+    },
+    "energy_aura": {
+      "ja": "気・魔法のオーラ（体・手のまわりの光る気、エネルギーの球。燃える闘志は fire_aura）",
+      "aliases": [
+        "気のオーラ",
+        "魔法のオーラ"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "a glowing aura of energy surrounding the body or hands"
+    },
+    "rolled_eyes": {
+      "ja": "白目・舌・よだれ（理性が飛んだ定型の表情）",
+      "aliases": [
+        "白目",
+        "よだれ"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "face",
+      "prompt": "eyes rolled back with tongue out and drool",
+      "rating": "adult"
+    },
+    "skin_shine": {
+      "ja": "ぬめりのハイライト（肌の楕円の光、圧迫で白く抜ける面）",
+      "aliases": [
+        "ぬめり",
+        "テカり"
+      ],
+      "krea_kind": "sweat_sheen",
+      "place": "body",
+      "prompt": "glossy oval highlights on the skin",
+      "rating": "adult"
+    },
+    "hand_marks": {
+      "ja": "赤み・手形（打った跡・揉んだ跡）",
+      "aliases": [
+        "手形",
+        "赤み"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "body",
+      "prompt": "reddened hand marks on the skin",
+      "rating": "adult"
+    },
+    "vein_lines": {
+      "ja": "血管のうねり（充血の定型の黒い曲線）",
+      "aliases": [
+        "血管"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "body",
+      "prompt": "bulging vein lines",
+      "rating": "adult"
+    },
+    "fluid_strands": {
+      "ja": "飛沫・糸・滴（白い線と玉。山場では放射）",
+      "aliases": [
+        "飛沫",
+        "糸",
+        "滴"
+      ],
+      "krea_kind": "droplets_splash",
+      "place": "body",
+      "prompt": "white fluid strands and droplets",
+      "rating": "adult"
+    }
+  },
+  "effects": {
+    "focus_lines": {
+      "ja": "集中線",
+      "aliases": [
+        "集中線"
+      ],
+      "krea_kind": "focus_lines",
+      "place": "panel",
+      "prompt": "radial focus lines converging on the subject"
+    },
+    "speed_lines": {
+      "ja": "スピード線（流線）",
+      "aliases": [
+        "スピード線",
+        "流線"
+      ],
+      "krea_kind": "speed_lines",
+      "place": "panel",
+      "prompt": "parallel speed lines across the panel"
+    },
+    "motion_lines": {
+      "ja": "動線（動きの軌跡）",
+      "aliases": [
+        "動線",
+        "効果線"
+      ],
+      "krea_kind": "motion_lines",
+      "place": "body",
+      "prompt": "motion lines trailing the moving limb"
+    },
+    "impact_burst": {
+      "ja": "衝撃（インパクト・爆発の放射）",
+      "aliases": [
+        "衝撃",
+        "インパクト"
+      ],
+      "krea_kind": "impact_burst",
+      "place": "body",
+      "prompt": "a spiky impact burst at the point of contact"
+    },
+    "beta_flash": {
+      "ja": "ベタフラッシュ（黒地の放射・衝撃や戦慄）",
+      "aliases": [
+        "ベタフラ",
+        "ベタフラッシュ"
+      ],
+      "krea_kind": "focus_lines",
+      "place": "panel",
+      "prompt": "black background with white radiating flash lines"
+    },
+    "uni_flash": {
+      "ja": "ウニフラッシュ（白い放射・ひらめきや驚愕）",
+      "aliases": [
+        "ウニフラ",
+        "ウニフラッシュ"
+      ],
+      "krea_kind": "focus_lines",
+      "place": "background",
+      "prompt": "spiky white radial flash behind the character"
+    },
+    "screentone_gloom": {
+      "ja": "どんよりトーン（暗いグラデーション背景）",
+      "aliases": [
+        "暗転トーン",
+        "どんよりトーン"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "dark gradient screentone background for a gloomy mood"
+    },
+    "black_background": {
+      "ja": "ベタ背景（黒・夜・ショック）",
+      "aliases": [
+        "ベタ背景",
+        "黒背景"
+      ],
+      "krea_kind": null,
+      "place": "panel",
+      "prompt": "solid black background"
+    },
+    "white_background": {
+      "ja": "白背景（背景を飛ばす）",
+      "aliases": [
+        "白背景",
+        "背景なし"
+      ],
+      "krea_kind": null,
+      "place": "panel",
+      "prompt": "plain white background"
+    },
+    "contact_spikes": {
+      "ja": "接触のトゲ（当たった点から出る白いギザ）",
+      "aliases": [
+        "接触のトゲ",
+        "当たり"
+      ],
+      "krea_kind": "impact_burst",
+      "place": "body",
+      "prompt": "small white spiky marks at the point of contact"
+    },
+    "motion_arc": {
+      "ja": "動作の弧（手・腰・武器の軌跡）",
+      "aliases": [
+        "軌跡",
+        "弧"
+      ],
+      "krea_kind": "motion_lines",
+      "place": "body",
+      "prompt": "curved motion arc following the swing"
+    },
+    "afterimage": {
+      "ja": "残像（薄く残る前のポーズ）",
+      "aliases": [
+        "残像"
+      ],
+      "krea_kind": "motion_lines",
+      "place": "body",
+      "prompt": "faint afterimages of the previous pose"
+    },
+    "mood_gradient": {
+      "ja": "空気の地（ピンク・紫のグラデーション、煙）",
+      "aliases": [
+        "空気の地",
+        "グラデ背景"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "soft pink and purple gradient background haze"
+    },
+    "hypno_waves": {
+      "ja": "催眠の波模様（同心円・渦の地）",
+      "aliases": [
+        "催眠",
+        "波模様"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "concentric hypnotic wave pattern in the background"
+    },
+    "white_flash": {
+      "ja": "一斉に走る白線のフラッシュ（山場・絶頂・覚醒）",
+      "aliases": [
+        "白フラッシュ",
+        "絶頂フラッシュ"
+      ],
+      "krea_kind": "focus_lines",
+      "place": "panel",
+      "prompt": "bright white lines bursting across the whole panel"
+    },
+    "falling_lines": {
+      "ja": "落下の縦線",
+      "aliases": [
+        "落下線"
+      ],
+      "krea_kind": "speed_lines",
+      "place": "panel",
+      "prompt": "vertical speed lines for falling"
+    },
+    "dash_dust": {
+      "ja": "走りの土煙",
+      "aliases": [
+        "走りの土煙"
+      ],
+      "krea_kind": "motion_lines",
+      "place": "body",
+      "prompt": "a cloud of dust kicked up behind the runner"
+    },
+    "dust_cloud": {
+      "ja": "砂ぼこり（着地・ケンカのドタバタ）",
+      "aliases": [
+        "砂ぼこり",
+        "土煙",
+        "ボカスカ"
+      ],
+      "krea_kind": "motion_lines",
+      "place": "body",
+      "prompt": "a puff of dust clouds from a landing or a comic brawl"
+    },
+    "water_splash": {
+      "ja": "水しぶき（汗以外：水たまり・水面・かけた水・波）",
+      "aliases": [
+        "水しぶき"
+      ],
+      "krea_kind": "droplets_splash",
+      "place": "body",
+      "prompt": "a splash of water droplets flying up from water"
+    },
+    "wind_lines": {
+      "ja": "風の流線（空気・風の白い筋）",
+      "aliases": [
+        "風の線",
+        "風"
+      ],
+      "krea_kind": "motion_lines",
+      "place": "panel",
+      "prompt": "white wind streaks sweeping across the panel"
+    },
+    "falling_petals": {
+      "ja": "舞う花びら（桜など、場面の空気）",
+      "aliases": [
+        "花びら",
+        "桜吹雪"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "panel",
+      "prompt": "flower petals drifting across the panel"
+    },
+    "light_rays": {
+      "ja": "差し込む光（光の筋）",
+      "aliases": [
+        "光の筋",
+        "差し込む光"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "panel",
+      "prompt": "rays of light streaming across the panel"
+    },
+    "rain_lines": {
+      "ja": "雨の線",
+      "aliases": [
+        "雨",
+        "雨の線"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "panel",
+      "prompt": "streaks of falling rain"
+    },
+    "confetti": {
+      "ja": "紙吹雪（祝い・歓声）",
+      "aliases": [
+        "紙吹雪"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "panel",
+      "prompt": "confetti fluttering across the panel"
+    },
+    "embers_sparks": {
+      "ja": "舞う火の粉・火花",
+      "aliases": [
+        "火の粉"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "panel",
+      "prompt": "glowing embers and sparks drifting in the air"
+    },
+    "object_steam": {
+      "ja": "物から立つ湯気（温かい食べ物・飲み物などから上がる湯気・香り）",
+      "aliases": [
+        "料理の湯気",
+        "物の湯気"
+      ],
+      "krea_kind": "steam_breath",
+      "place": "panel",
+      "prompt": "wisps of steam rising from a warm object"
+    },
+    "electric_arc": {
+      "ja": "放電（体・物から走る電気のギザギザ。背景のガーンの稲妻は lightning_shock）",
+      "aliases": [
+        "放電"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "body",
+      "prompt": "crackling arcs of electricity"
+    },
+    "smoke_puff": {
+      "ja": "煙（爆発・射撃・壊れた物・ギャグのやられから上がる煙。土ぼこりは dust_cloud）",
+      "aliases": [
+        "煙"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "body",
+      "prompt": "puffs of smoke rising"
+    },
+    "debris_shards": {
+      "ja": "飛び散る破片（瓦礫・ガラス片・かけら）",
+      "aliases": [
+        "破片",
+        "瓦礫"
+      ],
+      "krea_kind": "impact_burst",
+      "place": "body",
+      "prompt": "shards of debris flying outward"
+    },
+    "impact_stars": {
+      "ja": "衝撃の星（ケンカの雲・ぶつかった所・痛い所から飛ぶ星）",
+      "aliases": [
+        "衝撃の星"
+      ],
+      "krea_kind": "impact_burst",
+      "place": "body",
+      "prompt": "small stars popping out from an impact"
+    },
+    "emphasis_lines": {
+      "ja": "強調線（物・手元・文字を指す数本の直線。画面全体の集中線ではない）",
+      "aliases": [
+        "強調線"
+      ],
+      "krea_kind": "focus_lines",
+      "place": "body",
+      "prompt": "a few short lines pointing at an object to draw attention"
+    },
+    "trajectory_line": {
+      "ja": "軌跡（投げた物・弾・飛んでいく人の通り道の線、キラーンの星を含む）",
+      "aliases": [
+        "キラーン"
+      ],
+      "krea_kind": "motion_lines",
+      "place": "panel",
+      "prompt": "a trail line tracing the path of a flying object"
+    },
+    "glint": {
+      "ja": "きらめき（刃・眼鏡・歯・宝石のキラッという光。期待のキラキラは sparkles）",
+      "aliases": [
+        "キラッ"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "body",
+      "prompt": "a sharp glint of light on an object"
+    },
+    "falling_leaves": {
+      "ja": "舞う葉・羽根",
+      "aliases": [
+        "舞う葉",
+        "羽根"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "panel",
+      "prompt": "leaves and feathers drifting through the air"
+    },
+    "snowfall": {
+      "ja": "降る雪",
+      "aliases": [
+        "雪",
+        "降る雪"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "panel",
+      "prompt": "snowflakes falling"
+    },
+    "effect_tone": {
+      "ja": "背景の効果トーン（コマ一面の縦線・ハッチング・網点など、緊張・不穏・ほわほわ。どんよりトーン・空気の地に当たらないもの）",
+      "aliases": [
+        "効果トーン",
+        "背景のハッチング"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "background",
+      "prompt": "a patterned effect tone filling the background"
+    },
+    "pleasure_zigzag": {
+      "ja": "快感の電撃（接触点の白いジグザグ）",
+      "aliases": [
+        "快感の電撃",
+        "電撃"
+      ],
+      "krea_kind": "emotion_mark",
+      "place": "body",
+      "prompt": "white zigzag sparks at the point of contact",
+      "rating": "adult"
+    }
+  }
+}

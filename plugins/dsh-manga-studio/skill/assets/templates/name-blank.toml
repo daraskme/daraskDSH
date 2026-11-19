@@ -1,0 +1,20 @@
+# ネーム。書式は SKILL_DIR/references/name-format.md。1 コマ = 1 つの [[pages.panels]]、書いた順が読み順。
+[meta]
+title = ""
+episode = 1
+cast = "../characters/cast.toml"
+
+[[pages]]
+number = 1
+purpose = ""        # このページの役割（読者に設計を見せない。読者用の台本からは落ちる）
+tiers = [1.0]
+# turn = ""         # 左ページ: 最終コマで引くもの → めくった右ページの 1 コマ目で見せるもの
+
+  [[pages.panels]]
+  tier = 0
+  scene = "s1"
+  place = ""
+  shot = "long"
+  angle = "eye"
+  beat = ""         # このコマで起きること（日本語）
+  visual = ""       # 画の説明（英語。画像生成に渡る）

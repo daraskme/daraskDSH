@@ -3,6 +3,8 @@
       name: ../plugins/task-router/index.mjs
     - id: dsh-anima-lora-trainer
       name: ../plugins/dsh-anima-lora-trainer/index.mjs
+    - id: dsh-manga-studio
+      name: ../plugins/dsh-manga-studio/index.mjs
     - id: darask-cli-models
       name: ../agents/index.mjs
 - id: agent-default-model

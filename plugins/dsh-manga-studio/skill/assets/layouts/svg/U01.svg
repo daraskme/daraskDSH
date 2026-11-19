@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 771" width="500" height="771" font-family="'Noto Sans CJK JP','Hiragino Sans','Yu Gothic',Meiryo,sans-serif">
+<title>U01 引きの導入 → 枠なしの決め → 小さく受ける</title>
+<rect width="500" height="771" fill="#fff"/>
+<text x="12" y="26" font-size="17" font-weight="700" fill="#111">U01　引きの導入 → 枠なしの決め → 小さく受ける</text>
+<text x="12" y="50" font-size="11" fill="#555">作者の型　3 コマ　実例 7 ページ・5 冊（根拠: 実例ほぼなし）　会話・説明・感情・恋愛・静けさ</text>
+<rect x="0.5" y="64.5" width="499" height="706" fill="#fafafa" stroke="#ccc"/>
+<rect x="35.0" y="295.3" width="430.0" height="313.1" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="443.0" cy="317.3" r="15" fill="#111"/>
+<text x="443.0" y="323.3" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<rect x="50.0" y="132.3" width="400.3" height="161.2" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="428.4" cy="154.3" r="15" fill="#111"/>
+<text x="428.4" y="160.3" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<rect x="50.0" y="612.6" width="400.3" height="96.0" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="428.4" cy="634.6" r="15" fill="#111"/>
+<text x="428.4" y="640.6" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+</svg>

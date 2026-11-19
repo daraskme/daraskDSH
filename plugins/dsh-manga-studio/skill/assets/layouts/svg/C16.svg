@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 771" width="500" height="771" font-family="'Noto Sans CJK JP','Hiragino Sans','Yu Gothic',Meiryo,sans-serif">
+<title>C16 2 段 4 コマ・1 コマ目が大</title>
+<rect width="500" height="771" fill="#fff"/>
+<text x="12" y="26" font-size="17" font-weight="700" fill="#111">C16　2 段 4 コマ・1 コマ目が大</text>
+<text x="12" y="50" font-size="11" fill="#555">よく使う型　4 コマ　実例 128 ページ・47 冊（根拠: 強い）</text>
+<rect x="0.5" y="64.5" width="499" height="706" fill="#fafafa" stroke="#ccc"/>
+<rect x="35.0" y="106.4" width="430.0" height="286.6" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="443.0" cy="128.4" r="15" fill="#111"/>
+<text x="443.0" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<text x="250.0" y="255.7" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="271.1" y="400.4" width="193.5" height="321.1" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="442.6" cy="422.4" r="15" fill="#111"/>
+<text x="442.6" y="428.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<text x="367.8" y="567.0" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="35.0" y="550.5" width="232.2" height="169.8" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="245.2" cy="572.5" r="15" fill="#111"/>
+<text x="245.2" y="578.5" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<text x="151.1" y="641.4" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="36.3" y="406.6" width="230.1" height="139.0" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="244.3" cy="428.6" r="15" fill="#111"/>
+<text x="244.3" y="434.6" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<text x="151.3" y="482.1" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+</svg>

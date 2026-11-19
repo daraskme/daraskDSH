@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 771" width="500" height="771" font-family="'Noto Sans CJK JP','Hiragino Sans','Yu Gothic',Meiryo,sans-serif">
+<title>R06 はめ込みで溜め、左端の縦長で受ける</title>
+<rect width="500" height="771" fill="#fff"/>
+<text x="12" y="26" font-size="17" font-weight="700" fill="#111">R06　はめ込みで溜め、左端の縦長で受ける</text>
+<text x="12" y="50" font-size="11" fill="#555">珍しいが狙いのはっきりした型　4 コマ　実例 3 ページ・3 冊（根拠: 実例ほぼなし）　恐怖・緊張</text>
+<rect x="0.5" y="64.5" width="499" height="706" fill="#fafafa" stroke="#ccc"/>
+<rect x="189.8" y="106.4" width="275.2" height="615.1" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="211.8" cy="128.4" r="15" fill="#111"/>
+<text x="211.8" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<rect x="35.0" y="106.4" width="148.3" height="615.1" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="161.3" cy="128.4" r="15" fill="#111"/>
+<text x="161.3" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<rect x="247.0" y="146.4" width="113.9" height="261.4" fill="#dbeafe" stroke="#111" stroke-width="3"/>
+<circle cx="269.0" cy="168.4" r="15" fill="#111"/>
+<text x="269.0" y="174.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<rect x="337.3" y="137.2" width="106.6" height="198.1" fill="#dbeafe" stroke="#111" stroke-width="3"/>
+<circle cx="421.9" cy="159.2" r="15" fill="#111"/>
+<text x="421.9" y="165.2" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+</svg>

@@ -1,0 +1,12 @@
+# 人物表。appearance は画像生成に毎回そのまま貼る固定の文面（英語。服・髪・目・体格・小物）。
+# 変えるのは場面ごとの pose / expression だけ。服を変える回は name の人物に outfit / outfit_en を書く。
+
+[[characters]]
+id = "hero"                 # ネームで使う ID（英数字）
+name = ""                   # 表示名
+lora = ""                   # 領域別 LoRA の別名（使わないなら空か削除）
+appearance = ""             # 例: "teenage boy, short spiky black hair, sharp eyes, gakuran school uniform, red scarf"
+silhouette = ""             # 影だけで誰か分かる特徴（髪型・帽子・体格）
+reference = ""              # キャラシート画像のパス（三面図・表情集）
+voice = ""                  # 一人称・語彙・文の長さ・敬語の段階・言いよどみ方
+wants = ""                  # この話で欲しいもの

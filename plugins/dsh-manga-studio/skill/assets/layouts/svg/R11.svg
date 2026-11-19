@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 771" width="500" height="771" font-family="'Noto Sans CJK JP','Hiragino Sans','Yu Gothic',Meiryo,sans-serif">
+<title>R11 下段のコマが上の大ゴマに食い込む</title>
+<rect width="500" height="771" fill="#fff"/>
+<text x="12" y="26" font-size="17" font-weight="700" fill="#111">R11　下段のコマが上の大ゴマに食い込む</text>
+<text x="12" y="50" font-size="11" fill="#555">珍しいが狙いのはっきりした型　4 コマ　実例 12 ページ・12 冊（根拠: 弱い）　動き・戦い・スポーツ・恐怖・緊張</text>
+<rect x="0.5" y="64.5" width="499" height="706" fill="#fafafa" stroke="#ccc"/>
+<rect x="35.4" y="106.4" width="428.3" height="410.9" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="441.7" cy="128.4" r="15" fill="#111"/>
+<text x="441.7" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<text x="249.6" y="317.9" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="258.6" y="484.7" width="206.4" height="236.8" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="443.0" cy="506.7" r="15" fill="#111"/>
+<text x="443.0" y="512.7" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<text x="361.8" y="609.1" font-size="15" fill="#888" text-anchor="middle">フル</text>
+<rect x="35.0" y="517.9" width="117.0" height="201.7" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="130.0" cy="539.9" r="15" fill="#111"/>
+<text x="130.0" y="545.9" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<text x="93.5" y="624.8" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="149.4" y="505.6" width="107.9" height="166.1" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="235.3" cy="527.6" r="15" fill="#111"/>
+<text x="235.3" y="533.6" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<text x="203.3" y="594.7" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+</svg>

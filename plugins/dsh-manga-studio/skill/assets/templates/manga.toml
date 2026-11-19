@@ -1,0 +1,29 @@
+# 作品の契約。執筆・ネーム・検査のすべてがここを先に見る。決めたことだけを書き、未定は空のままにする。
+[work]
+title = ""
+format = "page"            # page（横開き・右綴じ） / yonkoma（4コマ） / webtoon（縦読み）
+first_page_side = "left"   # 1 ページ目が左ページ（奇数＝左）。扉を右に置く媒体なら right
+rating = "general"         # general / adult（成人向けの定型を使うか。登場人物は全員成人）
+target = ""                # 投稿先・応募先（例: 小学館新人コミック大賞 ストーリー部門 32P前後）。規定は references/formats.md で確認
+pages_per_episode = 0      # 1 話のページ数（縦読みはコマ数）。0 は未定
+genre = ""                 # references/genres.md の節の名前
+
+[contract]
+promise = ""               # 読者に約束する体験を一言（例: 両片思いのじれったさと、最後に通じる一瞬）
+manpu_level = "normal"     # low（記号を控える劇画・シリアス） / normal / high（ギャグ・ラブコメ）
+narration = "low"          # ナレーション・モノローグの量 low / normal / high
+keep = []                  # 欠点扱いしない様式（例: 決め台詞、毎話のアイキャッチ、ステータス画面）
+
+[render]
+# 画風ブロック（全コマ同じ文面）。白黒は線・ベタ・トーン・白の四つで描く。灰色の塗りを足させない（references/art-direction.md）
+style = "black-and-white Japanese manga, clean ink line art, solid black fills and sparse screentone, plenty of white space, flat shading, dark hair as solid black fill and light hair as white with a few strands"
+# 避けるもの（名詞で並べる。「no 〜」と書かない）
+negative = "grayscale painting, soft airbrush shading, smooth gradients, glossy highlights, rim light, bloom, 3d render, photorealistic, overly detailed background, extra characters, watermark, English text"
+page_aspect = 1.414        # 縦/横。B 系の投稿原稿は約 1.41
+text = "blank"             # 画像に文字を描かせるか（in-image）、吹き出しだけ描かせて写植するか（blank）
+model = ""                 # 使う画像生成モデル（references/image-generation.md）
+
+[lint]
+# name_lint.py の閾値の上書き（scripts/data/thresholds.json と同じ名前）と、止めたい規則。理由をコメントで残す。
+# balloon_chars = 40       # 例: 説明の多いお仕事もの。編集と合意済み
+# disable = ["N03"]        # 例: 吹き出しに句点を付ける作風

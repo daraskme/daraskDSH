@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 771" width="500" height="771" font-family="'Noto Sans CJK JP','Hiragino Sans','Yu Gothic',Meiryo,sans-serif">
+<title>C13 2 段 3 コマ・3 コマ目が大</title>
+<rect width="500" height="771" fill="#fff"/>
+<text x="12" y="26" font-size="17" font-weight="700" fill="#111">C13　2 段 3 コマ・3 コマ目が大</text>
+<text x="12" y="50" font-size="11" fill="#555">よく使う型　3 コマ　実例 106 ページ・42 冊（根拠: 強い）　ギャグ・動き・戦い・スポーツ</text>
+<rect x="0.5" y="64.5" width="499" height="706" fill="#fafafa" stroke="#ccc"/>
+<rect x="35.0" y="398.6" width="430.0" height="322.9" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="443.0" cy="420.6" r="15" fill="#111"/>
+<text x="443.0" y="426.6" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<text x="250.0" y="566.0" font-size="15" fill="#888" text-anchor="middle">フル</text>
+<rect x="242.7" y="106.4" width="221.9" height="278.6" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="442.6" cy="128.4" r="15" fill="#111"/>
+<text x="442.6" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<text x="353.6" y="251.7" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+<rect x="35.0" y="106.4" width="204.7" height="281.7" fill="#fff" stroke="#111" stroke-width="3"/>
+<circle cx="217.7" cy="128.4" r="15" fill="#111"/>
+<text x="217.7" y="134.4" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<text x="137.3" y="253.3" font-size="15" fill="#888" text-anchor="middle">ミドル</text>
+</svg>

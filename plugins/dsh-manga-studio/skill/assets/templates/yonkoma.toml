@@ -1,0 +1,78 @@
+# 4コマの例。format = "yonkoma" では tiers を書かなくてよい（4 コマを縦一列に等分。8 コマなら右列→左列）。
+# role は起承転結の役割メモ（読者用の台本には出ない）。
+
+[meta]
+title = "完璧な朝"
+format = "yonkoma"
+rating = "general"
+
+[[characters]]
+id = "sora"
+name = "そら"
+appearance = "young woman, long wavy hair in a loose ponytail, oversized hoodie, round glasses"
+voice = "一人称はあたし。自信満々で、失敗しても認めない"
+
+[[pages]]
+number = 1
+
+  [[pages.panels]]
+  role = "起"
+  scene = "s1"
+  place = "アパートの台所"
+  time = "朝"
+  shot = "full"
+  beat = "そらが目覚ましより早く起き、エプロン姿で台所に立つ"
+  visual = "young woman in an apron standing proudly in a small apartment kitchen, morning light"
+    [[pages.panels.characters]]
+    id = "sora"
+    pose = "hands on hips"
+    expression = "proud smile"
+    manpu = ["sparkles"]
+    [[pages.panels.text]]
+    type = "dialogue"
+    speaker = "sora"
+    text = "今日のあたしは／ひと味違う"
+
+  [[pages.panels]]
+  role = "承"
+  shot = "medium"
+  transition = "action"
+  beat = "トーストを焼き、卵を割り、コーヒーを淹れる。手際がいい"
+  visual = "young woman cracking an egg into a pan while toast pops up"
+    [[pages.panels.characters]]
+    id = "sora"
+    pose = "cracking an egg with one hand"
+    expression = "focused"
+    [[pages.panels.text]]
+    type = "sfx"
+    text = "ジュワ"
+
+  [[pages.panels]]
+  role = "転"
+  shot = "bust"
+  transition = "moment"
+  beat = "完成した朝食を前に、そらが時計を見て固まる"
+  visual = "young woman staring at a wall clock, a perfect breakfast on the table in front of her"
+    [[pages.panels.characters]]
+    id = "sora"
+    pose = "frozen, looking up at the clock"
+    expression = "blank"
+    manpu = ["sweat_drops"]
+    [[pages.panels.text]]
+    type = "sign"
+    text = "日曜日"
+
+  [[pages.panels]]
+  role = "結"
+  shot = "long"
+  transition = "scene"
+  beat = "ベッドに戻って朝食ごと二度寝している"
+  visual = "young woman asleep in bed holding a plate of toast, coffee mug on the nightstand"
+    [[pages.panels.characters]]
+    id = "sora"
+    pose = "sleeping in bed, hugging a plate of toast"
+    expression = "peaceful"
+    manpu = ["sleep_bubble"]
+    [[pages.panels.text]]
+    type = "aside"
+    text = "ひと味違う二度寝"

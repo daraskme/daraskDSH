@@ -1,0 +1,172 @@
+# ネーム（コマ割り台本）の雛形。書式の説明は references/name-format.md。
+# 1 コマ = 1 つの [[pages.panels]]。ファイルに書いた順が、作者の意図する読み順。
+# 段（tier）は上から 0, 1, 2…。同じ段のコマは右から左へ並ぶ（右綴じ）。
+
+[meta]
+title = "放課後の忘れ物"
+episode = 1
+format = "page"              # page（横開き） / yonkoma（4コマ） / webtoon（縦読み）
+first_page_side = "left"     # 右綴じの本で 1 ページ目が左ページ（奇数ページ＝左）
+rating = "general"           # general / adult
+# cast = "../characters/cast.toml"   # 人物表を別ファイルにするとき
+
+[[characters]]
+id = "misaki"
+name = "美咲"
+lora = "misaki"              # 領域別 LoRA の別名（使わないなら省略）
+appearance = "teenage girl, short black bob hair, navy school blazer, red ribbon tie, pleated grey skirt"
+voice = "一人称は私。言い切りが短い。照れると語尾が消える"
+
+[[characters]]
+id = "kaito"
+name = "海斗"
+lora = "kaito"
+appearance = "teenage boy, messy brown hair, navy school blazer worn open, white shirt, loose tie"
+voice = "一人称は俺。軽口が多いが、肝心なところで黙る"
+
+[[pages]]
+number = 1
+purpose = "掴み: 誰もいない教室に戻った美咲が、机の中に知らない手紙を見つける"
+tiers = [0.42, 0.33, 0.25]
+turn = "宛名が自分の名前だと分かったところで引く。めくった P2 の 1 コマ目で、背後に海斗"
+
+  [[pages.panels]]
+  id = "P1-1"
+  tier = 0
+  scene = "s1"
+  place = "放課後の教室"
+  time = "夕方"
+  shot = "long"
+  angle = "high"
+  background = "detailed"
+  bleed = "top,left"
+  beat = "夕日の差す無人の教室に、美咲が駆け込んでくる"
+  visual = "empty classroom at sunset, long shadows of desks, a girl running in through the front door"
+    [[pages.panels.characters]]
+    id = "misaki"
+    pose = "running through the doorway, one hand on the door frame"
+    expression = "out of breath"
+    pos = "right"
+    [[pages.panels.text]]
+    type = "sfx"
+    text = "ガラッ"
+    [[pages.panels.text]]
+    type = "dialogue"
+    speaker = "misaki"
+    text = "あった……／ノート"
+
+  [[pages.panels]]
+  id = "P1-2"
+  tier = 1
+  width = 1.0
+  shot = "insert"
+  angle = "high"
+  transition = "action"
+  beat = "机の中から、ノートと一緒に白い封筒が滑り出る"
+  visual = "a notebook being pulled out of a school desk, a white envelope sliding out with it"
+    [[pages.panels.text]]
+    type = "sfx"
+    text = "パサッ"
+
+  [[pages.panels]]
+  id = "P1-3"
+  tier = 2
+  width = 0.55
+  shot = "bust"
+  angle = "eye"
+  transition = "subject"
+  beat = "封筒を拾った美咲が固まる"
+  visual = "girl holding a white envelope, frozen"
+    [[pages.panels.characters]]
+    id = "misaki"
+    pose = "holding an envelope with both hands"
+    expression = "surprised, wide eyes"
+    pos = "center"
+    manpu = ["surprise_mark"]
+
+  [[pages.panels]]
+  id = "P1-4"
+  tier = 2
+  width = 0.45
+  shot = "extreme_closeup"
+  angle = "eye"
+  transition = "moment"
+  beat = "封筒の宛名。自分の名前"
+  visual = "close-up of the envelope with a handwritten name"
+    [[pages.panels.text]]
+    type = "sign"
+    text = "美咲へ"
+
+[[pages]]
+number = 2
+purpose = "海斗が現れ、手紙を隠す美咲とのすれ違い"
+tiers = [0.5, 0.5]
+
+  [[pages.panels]]
+  id = "P2-1"
+  tier = 0
+  width = 0.6
+  shot = "medium"
+  angle = "back"
+  transition = "action"
+  detail = "key"           # 決めコマ: めくった先の見せ場。人物も背景もここできちんと描く
+  background = "detailed"
+  beat = "封を切ろうとした瞬間、後ろの戸口に海斗"
+  visual = "girl about to open the envelope, a boy leaning on the back door of the classroom"
+    [[pages.panels.characters]]
+    id = "misaki"
+    pose = "fingers on the envelope flap, back to the door"
+    pos = "right"
+    [[pages.panels.characters]]
+    id = "kaito"
+    pose = "leaning against the door frame, hands in pockets"
+    pos = "left"
+    [[pages.panels.text]]
+    type = "dialogue"
+    speaker = "kaito"
+    text = "まだ残ってたのかよ"
+
+  [[pages.panels]]
+  id = "P2-2"
+  tier = 0
+  width = 0.4
+  shot = "closeup"
+  angle = "eye"
+  transition = "subject"
+  detail = "light"         # つなぎ: 線を減らし、背景は飛ばす
+  background = "white"
+  beat = "美咲が封筒を背中に隠す"
+  visual = "girl hiding the envelope behind her back, flustered"
+    [[pages.panels.characters]]
+    id = "misaki"
+    pose = "hands behind back"
+    expression = "flustered"
+    pos = "center"
+    manpu = ["sweat_drops", "heavy_blush"]
+    [[pages.panels.text]]
+    type = "shout"
+    speaker = "misaki"
+    text = "べっ　別に！"
+
+  [[pages.panels]]
+  id = "P2-3"
+  tier = 1
+  shot = "full"
+  angle = "eye"
+  transition = "action"
+  background = "simple"      # 場所は P1-1 と P2-1 で見せた。ここは机と窓の線だけ
+  beat = "海斗は何も言わずに自分の席へ。机の中を探って、空なのを確かめる"
+  visual = "boy checking inside his own empty desk, girl watching him from across the room"
+    [[pages.panels.characters]]
+    id = "kaito"
+    pose = "bending over his desk, hand inside"
+    pos = "left"
+    [[pages.panels.characters]]
+    id = "misaki"
+    pose = "standing stiffly, envelope hidden"
+    pos = "right"
+    manpu = ["question_mark"]
+    [[pages.panels.text]]
+    type = "thought"
+    speaker = "misaki"
+    text = "……あれ？／そこ、私の机じゃ……"
