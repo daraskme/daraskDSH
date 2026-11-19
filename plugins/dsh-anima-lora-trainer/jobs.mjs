@@ -3,9 +3,9 @@
 // bit-exact with ComfyUI). Training and generation share one queue, so they take the GPU in turn;
 // the queue survives service restarts (queue.json).
 import {spawn} from 'node:child_process'
-import {randomInt} from 'node:crypto'
+import {randomBytes, randomInt} from 'node:crypto'
 import {existsSync} from 'node:fs'
-import {mkdir, open, readdir, readFile, realpath, rename, stat, writeFile} from 'node:fs/promises'
+import {mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile} from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {basename, dirname, extname, isAbsolute, join, relative, sep} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -26,6 +26,68 @@ const H3_LORA = {name:'H3_VBVR_Pro-V2', path:join(ROOT, 'plugins/dsh-comfyui/lor
 const H3_GENERATED = join(ROOT, '.runtime/h3-native/generated')
 const PH3 = join(ROOT, 'plugins/dsh-minimax-h3/native/ph3.py')
 const IMAGES = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tif', '.tiff'])
+// Pictures sent from the browser (local or remote) or a chat tool: keyframes, references, edit inputs.
+const UPLOADS = join(ROOT, '.runtime/anima-native/uploads')
+// Training folders built from uploaded images and captions (remote LoRA training).
+const DATASETS = join(ROOT, '.runtime/anima-native/datasets')
+const PICTURES = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+const MAX_UPLOAD = 20 << 20
+const UPLOAD_DAYS = 14
+
+/** Stores one picture and returns its token (the file name under UPLOADS). */
+export async function storePicture(data, ext) {
+  ext = String(ext).toLowerCase()
+  if (!PICTURES.has(ext)) throw Error('画像（png・jpg・webp）を選んでください')
+  if (!data.length || data.length > MAX_UPLOAD) throw Error('画像は 20 MB までです')
+  const token = randomBytes(16).toString('hex') + ext
+  await mkdir(UPLOADS, {recursive:true})
+  await writeFile(join(UPLOADS, token), data, {flag:'wx'})
+  return token
+}
+
+async function upload(body) {
+  return {token:await storePicture(Buffer.from(String(body.data || ''), 'base64'), extname(String(body.name || '')))}
+}
+
+function picture(token, label) {
+  if (typeof token !== 'string' || !/^[0-9a-f]{32}\.(png|jpe?g|webp)$/.test(token) || !existsSync(join(UPLOADS, token)))
+    throw Error(label + 'の画像が見つかりません。選び直してください')
+  return join(UPLOADS, token)
+}
+
+function pictures(tokens, label, min, max) {
+  const list = Array.isArray(tokens) ? tokens : []
+  if (list.length < min || list.length > max) throw Error(label + 'は ' + min + '〜' + max + ' 枚にしてください')
+  return list.map((token, index) => picture(token, label + ' ' + (index + 1)))
+}
+
+/** Adds one uploaded file (image or same-stem .txt caption) to a training folder; never overwrites. */
+async function datasetFile(body) {
+  const dataset = String(body.dataset || '')
+  if (!/^[\w.@-]{1,80}$/.test(dataset) || dataset.startsWith('.')) throw Error('フォルダ名は英数字と . _ - @ で 80 文字以内にしてください')
+  const name = basename(String(body.name || ''))
+  const ext = extname(name).toLowerCase()
+  if (!name || name.startsWith('.') || /[\u0000-\u001f/\\]/.test(name) || !(IMAGES.has(ext) || ext === '.txt'))
+    throw Error('画像と同じ名前の .txt だけを追加できます: ' + name)
+  const data = Buffer.from(String(body.data || ''), 'base64')
+  if (data.length > MAX_UPLOAD) throw Error('1 ファイル 20 MB までです: ' + name)
+  const folder = join(DATASETS, dataset)
+  await mkdir(folder, {recursive:true})
+  await writeFile(join(folder, name), data, {flag:'wx'}).catch(error => {
+    throw error.code === 'EEXIST' ? Error('同じ名前のファイルがあります（上書きしません）: ' + name) : error
+  })
+  return {folder}
+}
+
+async function pruneUploads() {
+  const limit = Date.now() - UPLOAD_DAYS * 86400000
+  const keep = new Set(jobs.filter(job => ['queued', 'running'].includes(job.state))
+    .flatMap(job => [job.request.first_frame, job.request.last_frame, ...(job.request.references || []), ...(job.request.images || [])]))
+  for (const name of await readdir(UPLOADS).catch(() => [])) {
+    const path = join(UPLOADS, name)
+    if (!keep.has(path) && (await stat(path).catch(() => null))?.mtimeMs < limit) await rm(path, {force:true})
+  }
+}
 
 
 async function scan(folder) {
@@ -123,7 +185,7 @@ function number(value, label, min, max, integer = true) {
   return n
 }
 
-async function enqueueGenerate(body) {
+export async function enqueueGenerate(body) {
   await load()
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
   const negative = typeof body.negative === 'string' ? body.negative.trim() : ''
@@ -148,10 +210,10 @@ async function enqueueGenerate(body) {
   jobs.push({id, dir, request, state:'queued'})
   await save()
   pump()
-  return snapshot()
+  return {id}
 }
 
-async function enqueueVideo(body) {
+export async function enqueueVideo(body) {
   await load()
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
   if (!prompt) throw Error('プロンプトを入力してください')
@@ -159,26 +221,40 @@ async function enqueueVideo(body) {
   const width = number(body.width, '幅', 256, 1344), height = number(body.height, '高さ', 256, 1344)
   if (width % 32 || height % 32) throw Error('幅と高さは 32 の倍数にしてください')
   if (width * height > 1344 * 768) throw Error('大きさは 1344×768 の面積までにしてください')
+  const mode = body.mode || 't2v'
+  const inputs = {}
+  if (mode === 'i2v') {
+    if (!body.first && !body.last) throw Error('最初か最後のフレームの画像を選んでください')
+    if (body.first) inputs.first_frame = picture(body.first, '最初のフレーム')
+    if (body.last) inputs.last_frame = picture(body.last, '最後のフレーム')
+  } else if (mode === 'ref') {
+    inputs.references = pictures(body.references, '参照画像', 1, 9)
+  } else if (mode !== 't2v') throw Error('不明なモードです')
   const seed = body.seed === null || body.seed === undefined || body.seed === '' ? randomInt(0, 2 ** 32)
     : number(body.seed, 'シード', 0, Number.MAX_SAFE_INTEGER)
   const id = new Date().toISOString().replace(/[:.]/g, '-') + '-h3'
   const dir = join(JOBS, id)
   await mkdir(dir, {recursive:true})
-  const request = {kind:'h3', prompt, seed, width, height, length:number(body.length, 'フレーム数', 5, 362),
-                   loras:[H3_LORA], output_dir:join(H3_GENERATED, id)}
+  const request = {kind:'h3', mode, prompt, seed, width, height, length:number(body.length, 'フレーム数', 5, 362),
+                   loras:[H3_LORA], ...inputs, output_dir:join(H3_GENERATED, id)}
   await writeFile(join(dir, 'request.json'), JSON.stringify(request, null, 1))
   jobs.push({id, dir, request, state:'queued'})
   await save()
   pump()
-  return snapshot()
+  return {id}
 }
 
-async function enqueueImage(body) {
+export async function enqueueImage(body) {
   await load()
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
   if (!prompt) throw Error('プロンプトを入力してください')
   if (prompt.length > 4000) throw Error('プロンプトは 4000 文字以内にしてください')
-  const width = number(body.width, '幅', 256, 4096), height = number(body.height, '高さ', 256, 4096)
+  const mode = body.mode || 't2i'
+  if (!['t2i', 'edit', 'reference'].includes(mode)) throw Error('不明なモードです')
+  const images = mode === 't2i' ? [] : pictures(body.images, mode === 'edit' ? '編集する画像と参照画像' : '参照画像', 1, 9)
+  // edit: 0 x 0 keeps the size of the picture to edit
+  const auto = mode === 'edit' && !Number(body.width) && !Number(body.height)
+  const width = auto ? 0 : number(body.width, '幅', 256, 4096), height = auto ? 0 : number(body.height, '高さ', 256, 4096)
   if (width % 32 || height % 32) throw Error('幅と高さは 32 の倍数にしてください')
   if (width * height > 2912 * 2912) throw Error('大きさは 2912×2912 の面積までにしてください')
   const seed = body.seed === null || body.seed === undefined || body.seed === '' ? randomInt(0, 2 ** 32)
@@ -186,23 +262,55 @@ async function enqueueImage(body) {
   const id = new Date().toISOString().replace(/[:.]/g, '-') + '-ph3'
   const dir = join(JOBS, id)
   await mkdir(dir, {recursive:true})
-  const request = {kind:'ph3', prompt, seed, count:number(body.count, '枚数', 1, 16), width, height,
-                   output_dir:join(H3_GENERATED, id)}
+  const request = {kind:'ph3', mode, prompt, seed, count:number(body.count, '枚数', 1, 16), width, height,
+                   ...(images.length ? {images} : {}), output_dir:join(H3_GENERATED, id)}
   await writeFile(join(dir, 'request.json'), JSON.stringify(request, null, 1))
   jobs.push({id, dir, request, state:'queued'})
   await save()
   pump()
-  return snapshot()
+  return {id}
 }
 
-/** A generated file of a known job: GET ?image=<job id>/<NNN-seed.png | seed.mp4> */
-async function image(name) {
-  const [id, file, ...rest] = String(name).split('/')
+/** A generated file of a known job (GET ?image=<job id>/<NNN-seed.png | seed.mp4>) or an uploaded picture
+ *  (GET ?upload=<token>): {path, type} */
+function mediaPath(params) {
+  const upload = params.get('upload')
+  if (upload !== null) {
+    if (!/^[0-9a-f]{32}\.(png|jpe?g|webp)$/.test(upload)) return null
+    const ext = extname(upload).slice(1)
+    return {path:join(UPLOADS, upload), type:'image/' + (ext === 'jpg' ? 'jpeg' : ext)}
+  }
+  const [id, file, ...rest] = String(params.get('image')).split('/')
   const job = jobs.find(job => job.id === id)
   const pattern = {generate:/^\d{3}-\d+\.png$/, ph3:/^\d{3}-\d+\.png$/, h3:/^\d+\.mp4$/}[job?.request.kind]
   if (!pattern || rest.length || !pattern.test(file)) return null
-  const data = await readFile(join(job.request.output_dir, file)).catch(() => null)
-  return data && {data, type:job.request.kind === 'h3' ? 'video/mp4' : 'image/png'}
+  return {path:join(job.request.output_dir, file), type:job.request.kind === 'h3' ? 'video/mp4' : 'image/png'}
+}
+
+/** Serves a media file; videos answer Range requests (206) so phones can play and seek them. */
+async function media(request, params) {
+  const found = mediaPath(params)
+  const data = found && await readFile(found.path).catch(() => null)
+  if (!data) return Response.json({error:'ファイルが見つかりません'}, {status:404, headers:{'cache-control':'no-store'}})
+  const headers = {'content-type':found.type, 'cache-control':'private, max-age=86400', 'accept-ranges':'bytes'}
+  const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get('range') || '')
+  if (!range || (!range[1] && !range[2])) return new Response(data, {headers})
+  let start = range[1] ? Number(range[1]) : Math.max(0, data.length - Number(range[2]))
+  let end = range[1] && range[2] ? Math.min(Number(range[2]), data.length - 1) : data.length - 1
+  if (start > end || start >= data.length)
+    return new Response(null, {status:416, headers:{...headers, 'content-range':'bytes */' + data.length}})
+  return new Response(data.subarray(start, end + 1), {status:206,
+    headers:{...headers, 'content-range':'bytes ' + start + '-' + end + '/' + data.length}})
+}
+
+/** The job's current view (for chat tools waiting on their own job). */
+export async function jobView(id) {
+  return (await snapshot()).jobs.find(job => job.id === id) ?? null
+}
+
+/** The output files of a finished job, as absolute paths. */
+export function jobFiles(view) {
+  return (view?.images || []).map(item => join(view.request.output_dir, item.file))
 }
 
 const QUEUE = join(JOBS, 'queue.json')
@@ -219,6 +327,7 @@ async function load() {
       message:job.state === 'running' ? 'DSH の再起動で中断したため再実行します' : job.message})) } catch { jobs = [] }
     await save()
     pump()
+    pruneUploads().catch(() => {})
   })()
   return loaded
 }
@@ -328,6 +437,12 @@ async function clearFinished() {
   return snapshot()
 }
 
+export {cancel as cancelJob}
+
+export async function listLoraNames() {
+  return (await listLoras()).map(item => item.name)
+}
+
 export function registerJobApi(web) {
   web.effect(() => web.connection.fetch.register({
     path:'/api/darask.animaLora', methods:['GET', 'POST'], requestBody:'buffered',
@@ -335,12 +450,10 @@ export function registerJobApi(web) {
       const reply = (data, status = 200) => Response.json(data, {status, headers:{'cache-control':'no-store'}})
       try {
         if (request.method === 'GET') {
-          const name = new URL(request.url, 'http://local').searchParams.get('image')
-          if (name !== null) {
+          const params = new URL(request.url, 'http://local').searchParams
+          if (params.has('image') || params.has('upload')) {
             await load()
-            const file = await image(name)
-            return file ? new Response(file.data, {headers:{'content-type':file.type, 'cache-control':'private, max-age=86400'}})
-              : reply({error:'ファイルが見つかりません'}, 404)
+            return await media(request, params)
           }
         }
         if (request.method === 'GET') return reply({...(await snapshot()), purposes:Object.fromEntries(
@@ -350,9 +463,11 @@ export function registerJobApi(web) {
         if (body.action === 'list') return reply(await list(body.path))
         if (body.action === 'plan') { await load(); return reply(await plan(body)) }
         if (body.action === 'start') return reply(await enqueue(body))
-        if (body.action === 'generate') return reply(await enqueueGenerate(body))
-        if (body.action === 'video') return reply(await enqueueVideo(body))
-        if (body.action === 'image') return reply(await enqueueImage(body))
+        if (body.action === 'generate') return reply({...await enqueueGenerate(body), ...await snapshot()})
+        if (body.action === 'video') return reply({...await enqueueVideo(body), ...await snapshot()})
+        if (body.action === 'image') return reply({...await enqueueImage(body), ...await snapshot()})
+        if (body.action === 'upload') return reply(await upload(body))
+        if (body.action === 'dataset') return reply(await datasetFile(body))
         if (body.action === 'loras') return reply({loras:(await listLoras()).map(item => item.name)})
         if (body.action === 'cancel') return reply(await cancel(body.id))
         if (body.action === 'clear') return reply(await clearFinished())

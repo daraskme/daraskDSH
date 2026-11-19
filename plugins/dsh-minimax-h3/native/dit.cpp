@@ -40,6 +40,7 @@ using Weights = c10::Dict<std::string, Tensor>;
 constexpr int64_t kHidden = 5376, kHeads = 56, kHeadDim = 128, kRotDim = 96, kVideoC = 24, kAudioC = 32;
 constexpr double kEps = 1e-5;
 constexpr double kFrameRescale = 5.0 / 3.0;
+constexpr double kVisualCondT = 0.999;  // VISUAL_COND_TIMESTEP: condition rows (keyframes, references)
 constexpr int kFramePerToken[5] = {1, 4, 4, 4, 4};
 constexpr int kTagVideo = 0, kTagText = 1, kTagAudio = 2;
 
@@ -295,19 +296,32 @@ std::vector<Segment> segments_from(const std::vector<int64_t>& flat) {
 
 std::vector<Tensor> forward_impl(const Weights& w, const Tensor& video_x, const Tensor& audio_x, const Tensor& timestep,
                                  const Tensor& context, const Tensor& token_tags, double shift_v, double shift_a,
-                                 const std::vector<Tensor>& stats, bool first) {
+                                 const std::vector<Tensor>& stats, bool first, const std::optional<Tensor>& cond_rows,
+                                 const std::optional<Tensor>& positions) {
     TORCH_CHECK(video_x.dim() == 5 && video_x.size(0) == 1, "H3: video latent must be [1, 24, T, H, W]");
     const auto device = video_x.device();
     const auto dtype = context.scalar_type();
     const int64_t latent_t = video_x.size(2), lat_h = video_x.size(3), lat_w = video_x.size(4);
     const int64_t audio_t = audio_x.size(-1), text_len = context.size(1);
     TORCH_CHECK(lat_h % 2 == 0 && lat_w % 2 == 0, "H3: latent height/width must be even");
-    const auto layout = make_layout(text_len, latent_t, lat_h, lat_w, audio_t);
+    auto layout = make_layout(text_len, latent_t, lat_h, lat_w, audio_t);
+    // keyframe / reference rows (PackedLayout's cond and ref_img segments) pack between the text and the targets;
+    // their positions come from the caller (sampler.packed_positions)
+    const int64_t n_cond = cond_rows ? cond_rows->size(0) : 0;
+    if (positions) {
+        TORCH_CHECK(positions->size(0) == layout.seq + n_cond, "H3: positions do not match the packed sequence");
+        layout.positions = positions->to(at::kCPU).to(at::kDouble);
+        layout.seq += n_cond;
+    } else {
+        TORCH_CHECK(n_cond == 0, "H3: condition rows need their positions");
+    }
 
     auto sigma_v = (timestep.flatten()[0] / 1000.0).to(at::kFloat).clamp_min(1e-6);
     const double t_v = (1.0 - sigma_v).item<float>();
     const double t_a = (1.0 - time_shift_sigma(sigma_v, shift_v, shift_a)).item<float>();
+    const double t_c = std::max(t_v, kVisualCondT);  // condition rows sit near the clean end
     std::set<double> unique_set{t_v, t_a};
+    if (n_cond) unique_set.insert(t_c);
     std::vector<double> unique_t(unique_set.begin(), unique_set.end());
     auto row_of = [&](double t) { return int64_t(std::find(unique_t.begin(), unique_t.end(), t) - unique_t.begin()); };
 
@@ -322,17 +336,21 @@ std::vector<Tensor> forward_impl(const Weights& w, const Tensor& video_x, const 
             run = i;
         }
     }
-    const int64_t a0 = text_len, v0 = text_len + layout.audio;
+    const int64_t a0 = text_len + n_cond, v0 = a0 + layout.audio;
+    if (n_cond) segments.push_back({text_len, a0, row_of(t_c) * 3 + kTagVideo});
     segments.push_back({a0, v0, row_of(t_a) * 3 + kTagAudio});
     segments.push_back({v0, layout.seq, row_of(t_v) * 3 + kTagVideo});
 
     // embed and pack [text | audio | video]
     auto video_rows = video_x.to(at::kFloat).reshape({1, kVideoC, latent_t, 1, lat_h / 2, 2, lat_w / 2, 2})
                           .permute({0, 2, 4, 6, 1, 3, 5, 7}).reshape({-1, kVideoC * 4});
+    // one GEMM over [condition rows | target rows], as ComfyUI packs them
+    if (n_cond) video_rows = at::cat({cond_rows->to(video_rows.device()).to(at::kFloat), video_rows});
     auto video_embed = at::linear(video_rows, f32(w, "video_patch_proj.weight"), f32(w, "video_patch_proj.bias")).to(dtype);
     auto audio_rows = audio_x.to(at::kFloat)[0].permute({1, 2, 0}).reshape({-1, kAudioC});
     auto audio_embed = at::linear(audio_rows, f32(w, "audio_patch_proj.weight"), f32(w, "audio_patch_proj.bias")).to(dtype);
-    auto h = at::cat({context[0], audio_embed, video_embed});
+    auto h = n_cond ? at::cat({context[0], video_embed.narrow(0, 0, n_cond), audio_embed, video_embed.narrow(0, n_cond, layout.video)})
+                    : at::cat({context[0], audio_embed, video_embed});
 
     auto t_emb = time_embedding(w, unique_t, device);
     auto table = rope_table(layout, f32(w, "rope.inv_freq").to(device), dtype);
@@ -363,7 +381,8 @@ std::vector<Tensor> forward_impl(const Weights& w, const Tensor& video_x, const 
 // MiniMaxH3Model.forward: the sampler carries audio as (sigma_v / sigma_a) * x_audio.
 std::vector<Tensor> forward(const Weights& w, const Tensor& video_x, const Tensor& audio_x, const Tensor& timestep,
                             const Tensor& context, const Tensor& token_tags, double shift_v, double shift_a,
-                            double audio_scale, std::vector<Tensor> stats, bool first) {
+                            double audio_scale, std::vector<Tensor> stats, bool first, const std::optional<Tensor>& cond_rows,
+                            const std::optional<Tensor>& positions) {
     auto audio_src = audio_x;
     Tensor carry, sigma_a;
     auto x_audio = audio_x;
@@ -373,7 +392,7 @@ std::vector<Tensor> forward(const Weights& w, const Tensor& video_x, const Tenso
         carry = (sigma_a / sigma_v).to(audio_src.scalar_type());
         x_audio = audio_src * carry;
     }
-    auto out = forward_impl(w, video_x, x_audio, timestep, context, token_tags, shift_v, shift_a, stats, first);
+    auto out = forward_impl(w, video_x, x_audio, timestep, context, token_tags, shift_v, shift_a, stats, first, cond_rows, positions);
     if (audio_scale != 1.0) {
         out[1] = (1.0 - audio_scale) * (audio_src * carry) + (1.0 + (audio_scale - 1.0) * sigma_a).to(out[1].scalar_type()) * out[1];
     }
@@ -390,7 +409,7 @@ Tensor block_op(const Weights& w, int64_t index, const Tensor& x, const Tensor& 
 TORCH_LIBRARY_FRAGMENT(dsh_h3, m) {
     m.def("dit_forward(Dict(str, Tensor) weights, Tensor video_x, Tensor audio_x, Tensor timestep, Tensor context, "
           "Tensor token_tags, float shift_video, float shift_audio, float audio_scale, Tensor(a!)[] sla_stats, "
-          "bool sla_first) -> Tensor[]", &forward);
+          "bool sla_first, Tensor? cond_rows=None, Tensor? positions=None) -> Tensor[]", &forward);
     m.def("dit_block(Dict(str, Tensor) weights, int index, Tensor x, Tensor t_emb, int[] segments, Tensor rope_table) -> Tensor",
           &block_op);
 }

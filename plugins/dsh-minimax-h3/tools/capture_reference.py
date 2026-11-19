@@ -66,6 +66,12 @@ def install_hooks(execution):
         for encoder, batches in out.items():
             ids = [item[0] for batch in batches for item in batch if isinstance(item[0], int)]
             keep(f"tokenizer.{encoder}.ids", torch.tensor(ids, dtype=torch.int64))
+            # -1 marks a vision entry (its image goes to the vision tower)
+            marked = [item[0] if isinstance(item[0], int) else -1 for batch in batches for item in batch]
+            keep(f"tokenizer.{encoder}.marked", torch.tensor(marked, dtype=torch.int64))
+            images = [item[0]["data"] for batch in batches for item in batch if isinstance(item[0], dict)]
+            for index, image in enumerate(images):
+                keep(f"tokenizer.{encoder}.image{index}", image)
         (OUT / "prompt.txt").write_text(text)
         return out
     te.MiniMaxH3Tokenizer.tokenize_with_weights = tokens
@@ -75,9 +81,45 @@ def install_hooks(execution):
     def qwen(self, input_ids, *args, **kwargs):
         out = qwen_forward(self, input_ids, *args, **kwargs)
         keep("te.input_ids", input_ids)
+        keep("te.embeds", kwargs.get("embeds"))
+        info = kwargs.get("embeds_info") or []
+        (OUT / "embeds_info.json").write_text(json.dumps([{k: v for k, v in e.items() if isinstance(v, (int, str))} for e in info]))
         keep("te.output", out)
         return out
     te.MiniMaxQwen3VL.forward = qwen
+
+    import comfy.text_encoders.qwen3vl as qvl
+    import comfy.ldm.minimax.vae as mvae
+    vision_forward = qvl.Qwen3VLVisionModel.forward
+    vision_calls = {"n": 0}
+
+    def vision(self, x, grid, *args, **kwargs):
+        out = vision_forward(self, x, grid, *args, **kwargs)
+        i = vision_calls["n"]
+        vision_calls["n"] += 1
+        keep(f"vision{i}.pixels", x)
+        keep(f"vision{i}.grid", grid)
+        keep(f"vision{i}.out", out)
+        return out
+    qvl.Qwen3VLVisionModel.forward = vision
+    build_inputs = qvl.Qwen3VL.build_image_inputs
+
+    def image_inputs(self, embeds, embeds_info):
+        out = build_inputs(self, embeds, embeds_info)
+        keep("te.position_ids", out[0])
+        keep("te.visual_pos_masks", out[1])
+        return out
+    qvl.Qwen3VL.build_image_inputs = image_inputs
+    encode_calls = {"n": 0}
+    for cls in (mvae.MiniMaxH3VideoVAE, mvae.H3ImageVAE):
+        def encode(self, x, *args, _original=cls.encode, **kwargs):  # H3ImageVAE.encode does not call super
+            out = _original(self, x, *args, **kwargs)
+            i = encode_calls["n"]
+            encode_calls["n"] += 1
+            keep(f"vae_encode{i}.in", x)
+            keep(f"vae_encode{i}.out", out)
+            return out
+        cls.encode = encode
 
     refiner_forward = dit.TokenRefiner.forward
     inside = {"refiner": False, "linear": 0}
@@ -179,6 +221,10 @@ def install_hooks(execution):
             keep(f"dit.call{index}.timestep", timestep)
             keep(f"dit.call{index}.context", context)
             keep(f"dit.call{index}.payload", minimax_payload or {})
+            layout = (minimax_payload or {}).get("layout")
+            if layout is not None and index == 0:
+                keep("layout.position_ids", layout.position_ids)
+                (OUT / "layout_segments.json").write_text(json.dumps(layout.segments))
             keep(f"dit.call{index}.out", out)
         return out
     dit.MiniMaxH3Model.forward = model

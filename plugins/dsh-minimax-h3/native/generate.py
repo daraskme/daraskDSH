@@ -1,11 +1,13 @@
-"""Native MiniMax H3 text-to-video job (no ComfyUI code): prompt -> Qwen3-VL 32B (layer 50) + token refiner ->
+"""Native MiniMax H3 video job (no ComfyUI code): prompt (+ pictures) -> Qwen3-VL 32B (layer 50) + token refiner ->
 res_multistep 8 steps with the DiT (SLA) -> video ViT3D VAE + audio BigVGAN -> MP4 (H.264 + AAC).
+Modes: text to video; image to video (first and/or last frame, MiniMaxH3ImageToVideo); reference to video
+(reference pictures named <Picture i> in the prompt, MiniMaxH3ReferenceToVideo with ref_image_size=match).
 
 Usage: comfy-venv/bin/python generate.py JOB_DIR   (JOB_DIR/request.json is written by the DSH plugin)
 request: prompt, seed, width, height, length (frames at 24 fps, snapped up to 17k + 5), loras [{path, strength}],
-output_dir. Progress goes to JOB_DIR/status.json; the video to output_dir as <seed>.mp4.
+output_dir, and optionally first_frame / last_frame (picture paths) or references [picture paths]. Progress goes to JOB_DIR/status.json; the video to output_dir as <seed>.mp4.
 Bit-exact with ComfyUI's "MiniMax H3 - Eros beta7 + VBVR Pro V2" graph up to the uncompressed frames and waveform
-(the Qwen output differs ~1e-6, see docs/h3-native-plan.md). The caller cancels by killing the process group.
+(the Qwen output differs ~1e-6, see docs/h3-native-plan.md); pictures: docs/h3-conditioning-native-plan.md. The caller cancels by killing the process group.
 """
 from fractions import Fraction
 import json
@@ -81,32 +83,44 @@ def main():
     from tokenizers import Tokenizer
     import audio
     import build
+    import cond
+    import pictures
     import sampler
     import vae
 
     started = time.time()
     build.build()
-    ids = Tokenizer.from_file(str(TOKENIZER)).encode(request["prompt"], add_special_tokens=False).ids
+    tokenizer = Tokenizer.from_file(str(TOKENIZER))
+    seed, width, height, length = (int(request[k]) for k in ("seed", "width", "height", "length"))
+    frames = sampler.frame_count(length)
+    # (pixel frame index, picture) keyframes: the first frame stretched to the canvas, the last one center-cropped
+    keyframes = [(0, pictures.resize(pictures.load(request["first_frame"]), width, height))] if request.get("first_frame") else []
+    if request.get("last_frame"):
+        keyframes.append((frames - 1, pictures.resize(pictures.load(request["last_frame"]), width, height, crop=True)))
+    references = [pictures.h3_reference(pictures.load(path), width, height) for path in request.get("references") or []]
+    shown = [image for _, image in keyframes] + references  # what Qwen sees, <Picture 1>, <Picture 2>, ...
     with torch.inference_mode():
-        te = load(TEXT_ENCODER, ("model.",))
+        te = load(TEXT_ENCODER, ("model.", "visual.") if shown else ("model.",))
         te = {k: v for k, v in te.items() if not k.endswith("comfy_quant")}
-        hidden = torch.ops.dsh_h3.encode_text(te, torch.tensor(ids, dtype=torch.int64, device="cuda"))
-        del te
+        hidden_states, tags = cond.encode(te, "model.", "visual.", tokenizer, request["prompt"], shown, 50, [])
+        hidden = hidden_states[-1]
+        del te, hidden_states
         torch.cuda.empty_cache()
         update(message="DiT を読み込んでいます")
         dit = load(DIT)
         for item in request.get("loras", []):
             torch.ops.dsh_h3.merge_loras(dit, load(item["path"]), float(item["strength"]))
         context = torch.ops.dsh_h3.refine_text(dit, hidden).unsqueeze(0)
-        tags = torch.ones(len(ids), dtype=torch.int64, device="cuda")  # T2V: every text token is tag 1
-        video_w = load(VIDEO_VAE, ("decoder.", "post_quant_conv.", "latents_"), torch.float16)
+        video_w = load(VIDEO_VAE, ("decoder.", "post_quant_conv.", "latents_") + (("encoder.", "quant_conv.") if shown else ()),
+                       torch.float16)
+        keyframes = [(index, vae.encode_image(video_w, image)) for index, image in keyframes]
+        references = [vae.encode_image(video_w, image) for image in references]
         audio_w = load(AUDIO_VAE, ("decoder.", "dec_in_proj.", "latents_"))
         update(stage="generating", message=None, load_seconds=round(time.time() - started, 1), step=0, steps=8)
 
-        seed, width, height, length = (int(request[k]) for k in ("seed", "width", "height", "length"))
         sample_started = time.time()
         latent = sampler.sample(dit, context, tags, seed, width, height, length,
-                                on_step=lambda i, x, d: update(step=i + 1))
+                                on_step=lambda i, x, d: update(step=i + 1), keyframes=keyframes, refs=references)
         del dit
         torch.cuda.empty_cache()
         update(stage="decoding", message="映像と音声を作っています", sample_seconds=round(time.time() - sample_started, 1))

@@ -184,3 +184,91 @@ def ph3_image_pixels(w, z):
     ids = token_ids(z.shape[3:], z.device, z.dtype)
     ids = torch.cat([torch.full_like(ids[..., :1], PH3_IMAGE_FRAME_POSITION), ids], dim=-1)
     return vit(w, z, ids, 1)
+
+
+# ---- encoder (keyframes and reference images: always one frame) ----------------------------------------------------
+# EncoderFCN3D on a single frame: every causal 3x3x3 conv keeps only its last temporal tap (ComfyUI's "causal_zero"),
+# so it is a 2D conv; GroupNorm statistics are per frame. FP16 like ComfyUI.
+
+IMAGE_ENCODE_SEED = 42
+
+
+def _conv(w, p, x, pad=None):
+    weight = w[p + ".weight"]
+    if weight.dim() == 5:
+        weight = weight[:, :, -1]
+    if pad:
+        x = F.pad(x, pad, mode="reflect")
+    return F.conv2d(x, weight.to(x.dtype), w[p + ".bias"].to(x.dtype), stride=1)
+
+
+def _norm_silu(w, p, x):
+    return F.silu(F.group_norm(x, 32, w[p + ".weight"].to(x.dtype), w[p + ".bias"].to(x.dtype), 1e-6))
+
+
+def encode_moments(w, x):
+    """[1, 3, H, W] normalized pixels -> [1, 48, H / 16, W / 16] moments."""
+    h = _conv(w, "encoder.conv_in", x, (1, 1, 1, 1))
+    levels = 1 + max(int(k.split(".")[2]) for k in w if k.startswith("encoder.down."))
+    for level in range(levels):
+        blocks = 1 + max(int(k.split(".")[4]) for k in w if k.startswith(f"encoder.down.{level}.block."))
+        for block in range(blocks):
+            p = f"encoder.down.{level}.block.{block}"
+            shortcut = _conv(w, p + ".nin_shortcut", h) if p + ".nin_shortcut.weight" in w else h
+            if p + ".conv1.weight" not in w:  # pruned to its shortcut (LightVAE Lite)
+                h = shortcut
+                continue
+            inner = _conv(w, p + ".conv1", _norm_silu(w, p + ".norm1", h), (1, 1, 1, 1))
+            h = _conv(w, p + ".conv2", _norm_silu(w, p + ".norm2", inner), (1, 1, 1, 1)) + shortcut
+        p = f"encoder.down.{level}.downsample.conv"
+        if p + ".weight" in w:  # every downsampling level halves H and W (the time stride is moot for one frame)
+            h = F.conv2d(F.pad(h, (0, 1, 0, 1), mode="reflect"), w[p + ".weight"][:, :, -1].to(h.dtype),
+                         w[p + ".bias"].to(h.dtype), stride=2)
+    h = _conv(w, "encoder.conv_out", _norm_silu(w, "encoder.norm_out", h), (1, 1, 1, 1))
+    return F.conv2d(h, w["quant_conv.weight"][:, :, 0].to(h.dtype), w["quant_conv.bias"].to(h.dtype))
+
+
+def tiled_encode(w, x):
+    """MiniMaxH3VideoVAE.tiled_encode on one frame: 256-px tiles, blended in latent space."""
+    y_idx, y_len, y_overlap = split_tiles(x.shape[-2])
+    x_idx, x_len, x_overlap = split_tiles(x.shape[-1])
+    rows = [[encode_moments(w, x[..., i:i + a, j:j + b]) for j, b in zip(x_idx, x_len)] for i, a in zip(y_idx, y_len)]
+    out_rows = []
+    for i, row in enumerate(rows):
+        out = []
+        for j, tile in enumerate(row):
+            if i > 0:
+                tile = blend(rows[i - 1][j], tile, y_overlap[i - 1] // RATIO, dim=-2)
+            if j > 0:
+                tile = blend(row[j - 1], tile, x_overlap[j - 1] // RATIO, dim=-1)
+            if i < len(rows) - 1:
+                tile = tile[..., :-(y_overlap[i] // RATIO), :]
+            if j < len(row) - 1:
+                tile = tile[..., :, :-(x_overlap[j] // RATIO)]
+            out.append(tile)
+        out_rows.append(torch.cat(out, dim=-1))
+    return torch.cat(out_rows, dim=-2)
+
+
+def encode_image(w, pixels, sample=False):
+    """[H, W, 3] RGB in [0, 1] (already at the target size) -> normalized latent [1, 24, 1, H / 16, W / 16].
+
+    sample=False: the H3 keyframe/reference encode (posterior mean). sample=True: the p-h3-image encode
+    (mean + std * noise from a CPU generator seeded 42)."""
+    return encode_signed(w, (pixels.to("cuda", torch.float16) * 2.0 - 1.0).permute(2, 0, 1).unsqueeze(0), sample)
+
+
+def encode_signed(w, x, sample=False):
+    """[1, 3, H, W] FP16 pixels in [-1, 1] (ComfyUI's VAE input) -> normalized latent."""
+    mean = torch.tensor(IMAGENET_MEAN).to(x).view(1, 3, 1, 1)
+    std = torch.tensor(IMAGENET_STD).to(x).view(1, 3, 1, 1)
+    x = x.add(1.0).mul_(0.5).sub_(mean).div_(std)
+    moments = tiled_encode(w, x).float().unsqueeze(2)
+    mean_z, logvar = moments.chunk(2, dim=1)
+    if sample:
+        noise = torch.randn(mean_z.shape, generator=torch.Generator().manual_seed(IMAGE_ENCODE_SEED)).to(mean_z.device)
+        mean_z = torch.addcmul(mean_z, torch.exp(0.5 * logvar.clamp(-30.0, 20.0)), noise)
+    # the statistics are module buffers, cast to the VAE's FP16 with the rest of it
+    lm = w["latents_mean"].half().view(1, -1, 1, 1, 1).to(mean_z)
+    ls = w["latents_std"].half().view(1, -1, 1, 1, 1).to(mean_z)
+    return (mean_z - lm) / ls

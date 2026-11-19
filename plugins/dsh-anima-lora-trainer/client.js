@@ -23,6 +23,60 @@ window.__ModuleLoader__.load({
       if (!res.ok) throw Error(data.error || 'エラー ' + res.status)
       return data
     }
+    // the desktop folder dialog only makes sense on the machine itself, not through studio.darask.me
+    const LOCAL = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+    const uploadUrl = token => API + '?upload=' + encodeURIComponent(token)
+    const tokenOf = path => String(path).split('/').pop()
+    const toBase64 = file => new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+    const VIDEO_MODES = [['t2v','テキストから'],['i2v','画像から（最初・最後のフレーム）'],['ref','参照画像から']]
+    const IMAGE_MODES = [['t2i','テキストから'],['edit','画像を編集（参照画像も使える）'],['reference','参照画像から生成']]
+    const MODE_LABEL = {i2v:'画像から',ref:'参照画像から',edit:'編集',reference:'参照から生成'}
+
+    /** Picks pictures, sends each one to the server (works the same locally and through the remote gateway) and
+     *  keeps their tokens. Drop files on it or use the file picker (phones offer the camera and photo library). */
+    function Pictures({label, hint, max, value, onChange, disabled, captions}) {
+      const [busy,setBusy] = React.useState(false)
+      const [error,setError] = React.useState('')
+      async function add(files) {
+        setBusy(true); setError('')
+        try {
+          let next = [...value]
+          for (const file of [...files].slice(0, max - value.length)) {
+            if (file.size > 20 << 20) throw Error(file.name + ' は 20 MB を超えています')
+            const {token} = await api({action:'upload',name:file.name,data:await toBase64(file)})
+            next = [...next, token]
+            onChange(next)
+          }
+        } catch (e) { setError(e.message) }
+        setBusy(false)
+      }
+      return h('fieldset',{className:'dsh-anima-pictures',disabled:disabled || busy,
+          onDragOver:e => e.preventDefault(),onDrop:e => { e.preventDefault(); if (!disabled && !busy) add(e.dataTransfer.files) }},
+        h('legend',null,label),
+        h('div',{className:'dsh-anima-thumbs'},
+          value.map((token, index) => h('figure',{key:token},
+            h('img',{src:uploadUrl(token),alt:(captions?.(index) || label) + ' ' + (index + 1)}),
+            h('figcaption',null,captions ? captions(index) : max > 1 ? '<Picture ' + (index + 1) + '>' : ''),
+            h('button',{type:'button','aria-label':'外す',onClick:() => onChange(value.filter(item => item !== token))},'×'))),
+          value.length < max && h('label',{className:'dsh-anima-add'},
+            h('input',{type:'file',accept:'image/png,image/jpeg,image/webp',multiple:max - value.length > 1,
+              onChange:e => { add(e.target.files); e.target.value = '' }}),
+            h('span',null,busy ? '送信中…' : '＋ 画像'))),
+        hint && h('p',{className:'dsh-anima-meta'},hint),
+        error && h('p',{className:'dsh-anima-error',role:'alert'},error))
+    }
+
+    function Inputs({paths}) {
+      const tokens = paths.filter(Boolean).map(tokenOf)
+      return tokens.length > 0 && h('div',{className:'dsh-anima-inputs'},
+        tokens.map(token => h('img',{key:token,src:uploadUrl(token),alt:'入力画像',loading:'lazy'})))
+    }
+
     const lr = value => value < 0.001 ? value.toExponential().replace('e-', 'e-') : String(value)
     const minutes = ms => ms < 60000 ? Math.max(1, Math.round(ms / 1000)) + ' 秒' : Math.round(ms / 60000) + ' 分'
 
@@ -45,11 +99,12 @@ window.__ModuleLoader__.load({
       const images = job.images || []
       const each = images.length ? images.reduce((sum, image) => sum + image.seconds, 0) / images.length : 0
       return h('section',{className:'dsh-anima-card','aria-live':'polite'},
-        h('header',null,h('strong',{className:'dsh-anima-name'},(r.kind === 'ph3' ? 'P-H3 画像 · ' : '画像生成 · ') + r.count + ' 枚'),
+        h('header',null,h('strong',{className:'dsh-anima-name'},(r.kind === 'ph3' ? 'P-H3 画像 · ' + (MODE_LABEL[r.mode] ? MODE_LABEL[r.mode] + ' · ' : '') : '画像生成 · ') + r.count + ' 枚'),
           h('span',{className:'dsh-anima-stage dsh-anima-'+job.stage},
             job.queued ? STAGES.queued + '（' + job.position + ' 番目）' : STAGES[job.stage] || job.stage)),
         h('p',{className:'dsh-anima-prompt'},r.prompt),
-        h('div',{className:'dsh-anima-meta'},r.width + '×' + r.height + (r.kind === 'ph3' ? ' · 8 step' : ' · ' + r.steps + ' step · CFG ' + r.cfg + (r.fp8 === false ? ' · BF16' : ' · FP8')) + ' · seed ' + r.seed +
+        r.images && h(Inputs,{paths:r.images}),
+        h('div',{className:'dsh-anima-meta'},(r.width ? r.width + '×' + r.height : '元画像の大きさ') + (r.kind === 'ph3' ? ' · 8 step' : ' · ' + r.steps + ' step · CFG ' + r.cfg + (r.fp8 === false ? ' · BF16' : ' · FP8')) + ' · seed ' + r.seed +
           (r.count > 1 ? '〜' + (r.seed + r.count - 1) : '') +
           (r.loras?.length ? ' · ' + r.loras.map(l => l.name.replace(/\.safetensors$/,'') + ' ×' + l.strength).join(', ') : '')),
         job.stage === 'generating' && h(React.Fragment,null,h('progress',{max:1,value:fraction}),
@@ -58,7 +113,7 @@ window.__ModuleLoader__.load({
         job.message && job.stage !== 'done' && h('p',{className:job.stage === 'error' ? 'dsh-anima-error' : 'dsh-anima-meta',role:job.stage === 'error' ? 'alert' : undefined},job.message),
         images.length > 0 && h('div',{className:'dsh-anima-images'},images.map(image =>
           h('a',{key:image.file,href:imageUrl(job, image.file),target:'_blank',rel:'noopener',title:'seed ' + image.seed},
-            h('img',{src:imageUrl(job, image.file),alt:'seed ' + image.seed,loading:'lazy',style:{aspectRatio:r.width + '/' + r.height}})))),
+            h('img',{src:imageUrl(job, image.file),alt:'seed ' + image.seed,loading:'lazy',style:r.width ? {aspectRatio:r.width + '/' + r.height} : undefined})))),
         job.stage === 'done' && h('p',{className:'dsh-anima-meta'},'読み込み ' + Math.round(job.load_seconds || 0) + ' 秒 · 1 枚 ' + each.toFixed(1) + ' 秒'),
         (job.running || job.queued) && h(Button,{variant:'outline',size:'sm',onClick:() => cancel(job.id)},job.running ? '中止' : '取り消す'))
     }
@@ -67,10 +122,11 @@ window.__ModuleLoader__.load({
       const r = job.request || {}
       const video = job.images?.[0]
       return h('section',{className:'dsh-anima-card','aria-live':'polite'},
-        h('header',null,h('strong',{className:'dsh-anima-name'},'H3 動画'),
+        h('header',null,h('strong',{className:'dsh-anima-name'},'H3 動画' + (MODE_LABEL[r.mode] ? ' · ' + MODE_LABEL[r.mode] : '')),
           h('span',{className:'dsh-anima-stage dsh-anima-'+job.stage},
             job.queued ? STAGES.queued + '（' + job.position + ' 番目）' : STAGES[job.stage] || job.stage)),
         h('p',{className:'dsh-anima-prompt'},r.prompt),
+        h(Inputs,{paths:[r.first_frame, r.last_frame, ...(r.references || [])]}),
         h('div',{className:'dsh-anima-meta'},r.width + '×' + r.height + ' · ' + r.length + ' フレーム · seed ' + r.seed),
         job.stage === 'generating' && h(React.Fragment,null,h('progress',{max:8,value:job.step || 0}),
           h('div',{className:'dsh-anima-meta'},'step ' + (job.step || 0) + ' / 8')),
@@ -83,7 +139,7 @@ window.__ModuleLoader__.load({
     }
 
     function ImagePanel() {
-      const [form,setForm] = React.useState({prompt:'',size:'2912x2912',count:1,seed:''})
+      const [form,setForm] = React.useState({prompt:'',mode:'t2i',images:[],size:'2912x2912',count:1,seed:''})
       const [jobs,setJobs] = useQueue()
       const [notice,setNotice] = React.useState('')
       const [error,setError] = React.useState('')
@@ -93,9 +149,9 @@ window.__ModuleLoader__.load({
         e.preventDefault()
         setBusy(true); setError(''); setNotice('')
         try {
-          const [width, height] = form.size.split('x').map(Number)
-          const data = await api({action:'image',prompt:form.prompt,width,height,count:Number(form.count),
-            seed:form.seed === '' ? null : Number(form.seed)})
+          const [width, height] = form.size === 'auto' ? [0, 0] : form.size.split('x').map(Number)
+          const data = await api({action:'image',mode:form.mode,images:form.mode === 't2i' ? [] : form.images,prompt:form.prompt,
+            width,height,count:Number(form.count),seed:form.seed === '' ? null : Number(form.seed)})
           setJobs(data.jobs)
           setNotice('キューに追加しました')
         } catch (e) { setError(e.message) }
@@ -106,17 +162,28 @@ window.__ModuleLoader__.load({
         h('header',{className:'dsh-anima-head'},h('h1',null,h(ImageIcon),'P-H3 画像')),
         h('div',{className:'dsh-anima-body'},
           h('form',{className:'dsh-anima-card',onSubmit:submit},
-            h('label',null,h('span',null,'プロンプト'),
+            h('label',null,h('span',null,'モード'),h('select',{value:form.mode,disabled:busy,
+              onChange:e => set({mode:e.target.value,size:e.target.value === 'edit' ? 'auto' : form.size === 'auto' ? '2912x2912' : form.size})},
+              IMAGE_MODES.map(([value,label]) => h('option',{key:value,value},label)))),
+            form.mode !== 't2i' && h(Pictures,{label:form.mode === 'edit' ? '画像（1 枚目を編集）' : '参照画像',max:9,value:form.images,disabled:busy,
+              onChange:images => set({images}),
+              captions:form.mode === 'edit' ? index => index ? '<Picture ' + (index + 1) + '>' : '編集する画像' : undefined,
+              hint:form.mode === 'edit' ? 'プロンプトは編集の指示（例: 背景を夕焼けの海辺にする）。参照画像は <Picture 2> などで指せます。'
+                : 'プロンプトで <Picture 1> などと参照画像を指してください（例: The girl from <Picture 1> reads a book in a park）。'}),
+            h('label',null,h('span',null,form.mode === 'edit' ? '編集の指示' : 'プロンプト'),
               h('textarea',{value:form.prompt,rows:4,required:true,disabled:busy,
-                placeholder:'例: A neon sign that says "OPEN 24/7" above a ramen shop at night in the rain, cinematic photo',
+                placeholder:form.mode === 'edit' ? '例: Put the gold hair clip from <Picture 2> in her hair.'
+                  : form.mode === 'reference' ? '例: The girl from <Picture 1>, wearing the hair clip from <Picture 2>, sits on a park bench.'
+                  : '例: A neon sign that says "OPEN 24/7" above a ramen shop at night in the rain, cinematic photo',
                 onChange:e => set({prompt:e.target.value}),onKeyDown:e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.form.requestSubmit() }})),
             h('div',{className:'dsh-anima-grid'},
               h('label',null,h('span',null,'サイズ'),h('select',{value:form.size,disabled:busy,onChange:e => set({size:e.target.value})},
-                IMAGE_SIZES.map(([value,label]) => h('option',{key:value,value},label)))),
+                (form.mode === 'edit' ? [['auto','編集する画像の大きさ'], ...IMAGE_SIZES] : IMAGE_SIZES)
+                  .map(([value,label]) => h('option',{key:value,value},label)))),
               h('label',null,h('span',null,'枚数'),h('input',{type:'number',min:1,max:16,value:form.count,disabled:busy,onChange:e => set({count:e.target.value})})),
               h('label',null,h('span',null,'シード'),h('input',{type:'number',min:0,value:form.seed,placeholder:'ランダム',disabled:busy,onChange:e => set({seed:e.target.value})}))),
             h('div',{className:'dsh-anima-actions'},
-              h(Button,{type:'submit',variant:'primary',disabled:busy || !form.prompt.trim()},
+              h(Button,{type:'submit',variant:'primary',disabled:busy || !form.prompt.trim() || (form.mode !== 't2i' && !form.images.length)},
                 active ? 'キューに追加（実行中・待機中 ' + active + ' 件）' : '生成')),
             h('p',{className:'dsh-anima-meta'},'p-h3-image int8 · euler 8 step。プロンプトはそのまま使います（プロンプト拡張なし）。'),
             notice && h('p',{className:'dsh-anima-meta',role:'status'},notice),
@@ -125,7 +192,7 @@ window.__ModuleLoader__.load({
     }
 
     function VideoPanel() {
-      const [form,setForm] = React.useState({prompt:'',size:'1280x704',length:124,seed:''})
+      const [form,setForm] = React.useState({prompt:'',mode:'t2v',first:[],last:[],references:[],size:'1280x704',length:124,seed:''})
       const [jobs,setJobs] = useQueue()
       const [notice,setNotice] = React.useState('')
       const [error,setError] = React.useState('')
@@ -136,7 +203,9 @@ window.__ModuleLoader__.load({
         setBusy(true); setError(''); setNotice('')
         try {
           const [width, height] = form.size.split('x').map(Number)
-          const data = await api({action:'video',prompt:form.prompt,width,height,length:Number(form.length),
+          const pictures = form.mode === 'i2v' ? {first:form.first[0] || null,last:form.last[0] || null}
+            : form.mode === 'ref' ? {references:form.references} : {}
+          const data = await api({action:'video',mode:form.mode,...pictures,prompt:form.prompt,width,height,length:Number(form.length),
             seed:form.seed === '' ? null : Number(form.seed)})
           setJobs(data.jobs)
           setNotice('キューに追加しました')
@@ -148,6 +217,14 @@ window.__ModuleLoader__.load({
         h('header',{className:'dsh-anima-head'},h('h1',null,h(VideoIcon),'H3 動画')),
         h('div',{className:'dsh-anima-body'},
           h('form',{className:'dsh-anima-card',onSubmit:submit},
+            h('label',null,h('span',null,'モード'),h('select',{value:form.mode,disabled:busy,onChange:e => set({mode:e.target.value})},
+              VIDEO_MODES.map(([value,label]) => h('option',{key:value,value},label)))),
+            form.mode === 'i2v' && h('div',{className:'dsh-anima-pair'},
+              h(Pictures,{label:'最初のフレーム',max:1,value:form.first,disabled:busy,onChange:first => set({first})}),
+              h(Pictures,{label:'最後のフレーム（任意）',max:1,value:form.last,disabled:busy,onChange:last => set({last})})),
+            form.mode === 'i2v' && h('p',{className:'dsh-anima-meta'},'最初のフレームは動画の大きさに引き伸ばし、最後のフレームは中央を切り抜きます。'),
+            form.mode === 'ref' && h(Pictures,{label:'参照画像',max:9,value:form.references,disabled:busy,onChange:references => set({references}),
+              hint:'プロンプトで <Picture 1> などと指してください（例: <Picture 1> waves at the camera in a sunny park）。'}),
             h('label',null,h('span',null,'プロンプト（映像と音の説明）'),
               h('textarea',{value:form.prompt,rows:4,required:true,disabled:busy,
                 placeholder:'例: A close-up of a blue ceramic cup on a wooden table by a window. The camera moves slowly from left to right. Soft morning light, quiet room tone.',
@@ -159,7 +236,8 @@ window.__ModuleLoader__.load({
                 LENGTHS.map(([value,label]) => h('option',{key:value,value},label)))),
               h('label',null,h('span',null,'シード'),h('input',{type:'number',min:0,value:form.seed,placeholder:'ランダム',disabled:busy,onChange:e => set({seed:e.target.value})}))),
             h('div',{className:'dsh-anima-actions'},
-              h(Button,{type:'submit',variant:'primary',disabled:busy || !form.prompt.trim()},
+              h(Button,{type:'submit',variant:'primary',disabled:busy || !form.prompt.trim() ||
+                (form.mode === 'i2v' && !form.first.length && !form.last.length) || (form.mode === 'ref' && !form.references.length)},
                 active ? 'キューに追加（実行中・待機中 ' + active + ' 件）' : '生成')),
             h('p',{className:'dsh-anima-meta'},'Eros beta7 + VBVR Pro V2 · res_multistep 8 step · SLA。音声つき MP4（24 fps）。'),
             notice && h('p',{className:'dsh-anima-meta',role:'status'},notice),
@@ -205,7 +283,7 @@ window.__ModuleLoader__.load({
       return h('div',{className:'dsh-anima-browser',role:'group','aria-label':'フォルダの選択'},
         h('div',{className:'dsh-anima-row'},
           h('code',{className:'dsh-anima-path'},view?.path || '…'),
-          h(Button,{type:'button',size:'sm',variant:'outline',onClick:desktop},'Ubuntu で選択'),
+          LOCAL && h(Button,{type:'button',size:'sm',variant:'outline',onClick:desktop},'Ubuntu で選択'),
           h(Button,{type:'button',size:'sm',variant:'outline',onClick:close},'閉じる')),
         view && h('ul',null,
           view.parent && h('li',null,h('button',{type:'button',onClick:() => open(view.parent)},'↑ 上のフォルダ')),
@@ -213,6 +291,35 @@ window.__ModuleLoader__.load({
             h(IconFolderOpenRegular,{size:14}),h('span',null,dir.name),dir.images > 0 && h('small',null,dir.images + ' 枚'))))),
         view && h(Button,{type:'button',variant:'primary',size:'sm',disabled:!view.images,onClick:() => choose(view.path)},
           view.images ? 'このフォルダを使う（画像 ' + view.images + ' 枚）' : 'このフォルダに画像はありません'),
+        error && h('p',{className:'dsh-anima-error',role:'alert'},error))
+    }
+
+    /** Sends a training set from this device (images and same-stem .txt captions, one file per request) into a new
+     *  folder on the server; existing files are never overwritten. */
+    function DatasetUpload({disabled, done}) {
+      const [progress,setProgress] = React.useState(null)
+      const [error,setError] = React.useState('')
+      async function send(files) {
+        files = [...files]
+        if (!files.length) return
+        const dataset = 'upload-' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')
+        setError(''); setProgress({sent:0,total:files.length})
+        try {
+          let folder
+          for (const [index, file] of files.entries()) {
+            if (file.size > 20 << 20) throw Error(file.name + ' は 20 MB を超えています')
+            ;({folder} = await api({action:'dataset',dataset,name:file.name,data:await toBase64(file)}))
+            setProgress({sent:index + 1,total:files.length})
+          }
+          done(folder, files.some(file => file.name.toLowerCase().endsWith('.txt')))
+        } catch (e) { setError(e.message) }
+        setProgress(null)
+      }
+      return h(React.Fragment,null,
+        h('label',{className:'dsh-anima-add dsh-anima-upload'},
+          h('input',{type:'file',multiple:true,accept:'image/png,image/jpeg,image/webp,.txt',disabled:disabled || !!progress,
+            onChange:e => { send(e.target.files); e.target.value = '' }}),
+          h('span',null,progress ? '送信中 ' + progress.sent + ' / ' + progress.total : 'この端末の画像（と同じ名前の .txt）を送って使う')),
         error && h('p',{className:'dsh-anima-error',role:'alert'},error))
     }
 
@@ -336,7 +443,8 @@ window.__ModuleLoader__.load({
                 h('input',{value:form.folder,placeholder:'/path/to/images',disabled,required:true,onChange:e => set({folder:e.target.value})}),
                 h(Button,{type:'button',variant:'outline',disabled,className:'dsh-anima-nowrap',icon:h(IconFolderOpenRegular,{size:15}),onClick:() => setPicking(!picking)},'選択…')),
               picking && h(FolderBrowser,{start:form.folder.trim(),close:() => setPicking(false),
-                choose:path => { set({folder:path}); setPicking(false) }})),
+                choose:path => { set({folder:path}); setPicking(false) }}),
+              h(DatasetUpload,{disabled,done:(folder, captioned) => set({folder,overwrite:!captioned})})),
             h('fieldset',{disabled},h('legend',null,'目的'),
               h('div',{className:'dsh-anima-purposes'},PURPOSES.map(([key,label,hint]) =>
                 h('label',{key,className:form.purpose === key ? 'is-selected' : ''},
@@ -437,6 +545,19 @@ window.__ModuleLoader__.load({
         .dsh-anima-prompt{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
         .dsh-anima-images{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
         .dsh-anima-images img{display:block;width:100%;height:auto;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base)}
+        .dsh-anima-pictures{display:grid;gap:6px}
+        .dsh-anima-thumbs{display:flex;flex-wrap:wrap;gap:8px}
+        .dsh-anima-thumbs figure{position:relative;margin:0;width:88px;display:grid;gap:2px}
+        .dsh-anima-thumbs img{width:88px;height:88px;object-fit:cover;border-radius:var(--dsw-radius-md);border:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base)}
+        .dsh-anima-thumbs figcaption{font-size:11px;color:var(--dsw-alias-label-secondary);text-align:center;overflow-wrap:anywhere}
+        .dsh-anima-thumbs button{position:absolute;top:2px;right:2px;width:24px;height:24px;border:0;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;font:inherit;line-height:1}
+        .dsh-anima-add{position:relative;display:flex!important;align-items:center;justify-content:center;min-width:88px;min-height:88px;padding:8px;box-sizing:border-box;border:1px dashed var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md);cursor:pointer;background:var(--dsw-alias-bg-base);text-align:center}
+        .dsh-anima-add input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+        .dsh-anima-add span{font-size:13px!important;color:inherit!important;font-weight:400!important}
+        .dsh-anima-upload{min-height:40px}
+        .dsh-anima-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+        .dsh-anima-inputs{display:flex;flex-wrap:wrap;gap:6px}
+        .dsh-anima-inputs img{width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--dsw-alias-border-l3)}
         .dsh-anima-video{display:block;width:100%;height:auto;border-radius:var(--dsw-radius-md);background:#000}
         @media(max-width:650px){.dsh-anima-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dsh-anima-grid label:first-child{grid-column:1/-1}}
         @media(max-width:650px){.dsh-anima-purposes{grid-template-columns:1fr}.dsh-anima-head{padding:8px 12px}.dsh-anima-body{padding:16px 12px}}

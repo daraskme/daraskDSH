@@ -35,11 +35,12 @@ ref = load_file(str(REF / "reference.safetensors"), device="cuda")
 import ph3  # noqa: E402
 from tokenizers import Tokenizer  # noqa: E402
 prompt = (REF / "prompt.txt").read_text()
-ids = Tokenizer.from_file(str(TOKENIZER)).encode(prompt, add_special_tokens=False).ids
+tokenizer = Tokenizer.from_file(str(TOKENIZER))
+ids = tokenizer.encode(prompt, add_special_tokens=False).ids
 print("token ids exact:", ids == ref["tokenizer.qwen3vl_4b.ids"].tolist())
 weights = ph3.load_dit()
 with torch.inference_mode():
-    context, connected = ph3.condition(ph3.tensors(TE), weights, ids)
+    context, _, connected = ph3.condition(ph3.tensors(TE), weights, tokenizer, prompt)
 report("text_connector output", connected, ref["node.26.PH3ImageConditioning.out.0.0.0.0"][0])
 report("DiT context (connector -> refiner)", context, ref["dit.call0.context"])
 with torch.inference_mode():
