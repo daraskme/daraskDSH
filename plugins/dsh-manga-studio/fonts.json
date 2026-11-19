@@ -1,0 +1,158 @@
+{
+ "_comment": "マンガタブの写植・書き文字に使うフォント。すべて Google Fonts（github.com/google/fonts）の SIL Open Font License 1.1。本体は git に入れず fetch_fonts.py で .runtime/manga/fonts に取る（ライセンス文も一緒に置く）。",
+ "fonts": [
+  {
+   "key": "antique",
+   "name": "しっぽりアンチック B1",
+   "file": "ShipporiAntiqueB1-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/shipporiantiqueb1/ShipporiAntiqueB1-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/shipporiantiqueb1/OFL.txt",
+   "use": "台詞（アンチック体）"
+  },
+  {
+   "key": "mincho",
+   "name": "Zen Old Mincho Medium",
+   "file": "ZenOldMincho-Medium.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/zenoldmincho/ZenOldMincho-Medium.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/zenoldmincho/OFL.txt",
+   "use": "ナレーション・静寂"
+  },
+  {
+   "key": "dela",
+   "name": "Dela Gothic One",
+   "file": "DelaGothicOne-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/delagothicone/DelaGothicOne-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/delagothicone/OFL.txt",
+   "use": "迫力・威圧・鼓動・叫び"
+  },
+  {
+   "key": "reggae",
+   "name": "Reggae One",
+   "file": "ReggaeOne-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/reggaeone/ReggaeOne-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/reggaeone/OFL.txt",
+   "use": "鋭い SE"
+  },
+  {
+   "key": "rocknroll",
+   "name": "RocknRoll One",
+   "file": "RocknRollOne-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/rocknrollone/RocknRollOne-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/rocknrollone/OFL.txt",
+   "use": "横太・二重フチ"
+  },
+  {
+   "key": "mochiy",
+   "name": "Mochiy Pop One",
+   "file": "MochiyPopOne-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/mochiypopone/MochiyPopOne-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/mochiypopone/OFL.txt",
+   "use": "ポップ・ふち"
+  },
+  {
+   "key": "daruma",
+   "name": "Darumadrop One",
+   "file": "DarumadropOne-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/darumadropone/DarumadropOne-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/darumadropone/OFL.txt",
+   "use": "ぽてぽて（かなのみ）"
+  },
+  {
+   "key": "yusei",
+   "name": "Yusei Magic",
+   "file": "YuseiMagic-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/yuseimagic/YuseiMagic-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/yuseimagic/OFL.txt",
+   "use": "描き文字マーカー"
+  },
+  {
+   "key": "kurenaido",
+   "name": "Zen Kurenaido",
+   "file": "ZenKurenaido-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/zenkurenaido/ZenKurenaido-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/zenkurenaido/OFL.txt",
+   "use": "手書きペン・震え"
+  },
+  {
+   "key": "hachimaru",
+   "name": "Hachi Maru Pop",
+   "file": "HachiMaruPop-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/hachimarupop/HachiMaruPop-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/hachimarupop/OFL.txt",
+   "use": "丸文字"
+  },
+  {
+   "key": "dot",
+   "name": "DotGothic16",
+   "file": "DotGothic16-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/dotgothic16/DotGothic16-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/dotgothic16/OFL.txt",
+   "use": "電子音"
+  },
+  {
+   "key": "rampart",
+   "name": "Rampart One",
+   "file": "RampartOne-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/rampartone/RampartOne-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/rampartone/OFL.txt",
+   "use": "立体"
+  },
+  {
+   "key": "boku",
+   "name": "Yuji Boku",
+   "file": "YujiBoku-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/yujiboku/YujiBoku-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/yujiboku/OFL.txt",
+   "use": "べちょ筆・墨"
+  },
+  {
+   "key": "syuku",
+   "name": "Yuji Syuku",
+   "file": "YujiSyuku-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/yujisyuku/YujiSyuku-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/yujisyuku/OFL.txt",
+   "use": "草書"
+  },
+  {
+   "key": "potta",
+   "name": "Potta One",
+   "file": "PottaOne-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/pottaone/PottaOne-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/pottaone/OFL.txt",
+   "use": "袋文字の立体"
+  },
+  {
+   "key": "yomogi",
+   "name": "Yomogi",
+   "file": "Yomogi-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/yomogi/Yomogi-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/yomogi/OFL.txt",
+   "use": "やわらか手書き"
+  },
+  {
+   "key": "train",
+   "name": "Train One",
+   "file": "TrainOne-Regular.ttf",
+   "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/trainone/TrainOne-Regular.ttf",
+   "license": "OFL-1.1",
+   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/trainone/OFL.txt",
+   "use": "抜き文字"
+  }
+ ]
+}

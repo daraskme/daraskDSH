@@ -2,14 +2,15 @@
 // The name (ネーム) follows ja-manga-writing (skill/), written by an agent CLI; panel pictures come from
 // native Anima (or P-H3 from character sheets) and are fixed with P-H3 edits. GPU work goes through the
 // shared Anima/H3 queue; projects live in .runtime/manga/projects/<id>/project.json.
-import {execFile} from 'node:child_process'
+import {execFile, spawn} from 'node:child_process'
 import {createHash, randomBytes} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {copyFile, mkdir, readdir, readFile, rename, rm, writeFile} from 'node:fs/promises'
 import {basename, extname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {promisify} from 'node:util'
-import {agentNames, runCli} from '../../agents/cli.mjs'
+import {agentNames, executable, runCli} from '../../agents/cli.mjs'
+import {cliOptions, optionArgs} from '../../agents/options.mjs'
 import {cancelJob, enqueueGenerate, enqueueImage, jobView, listLoraNames, storePicture} from '../dsh-anima-lora-trainer/jobs.mjs'
 
 const run = promisify(execFile)
@@ -21,6 +22,11 @@ const PROJECTS = join(ROOT, '.runtime/manga/projects')
 const TRASH = join(ROOT, '.runtime/manga/trash')
 const JOBS = join(ROOT, '.runtime/anima-native/jobs')
 const PYTHON = process.env.DSH_MANGA_PYTHON || 'python3'
+// typeset.py (lettering as SVG paths) needs fonttools + uharfbuzz: .runtime/manga-venv (see README)
+const TYPESET_PYTHON = process.env.DSH_MANGA_TYPESET_PYTHON || join(ROOT, '.runtime/manga-venv/bin/python')
+const TYPESET = join(HERE, 'typeset.py')
+// Anima draws only people and places: lettering, balloons and the line effects come as layers on top.
+const NO_TEXT = 'text, letters, speech bubble, sound effect lettering, signature'
 const SERVICES = ['claude', 'codex', 'google', 'grok', 'cursor', 'muse']
 const FRAME = [70, 60, 930, 930]  // manga_name.py: basic frame (norm_1000) inside the margins
 const DEFAULT_STYLE = 'black-and-white Japanese manga, clean ink line art, solid black fills and sparse screentone, plenty of white space, flat shading'
@@ -103,9 +109,9 @@ async function createProject(body) {
     id, created:new Date().toISOString(),
     brief:{idea, pages:int(body.pages ?? 8, 'ページ数', 1, 60), genre:text(body.genre, 'ジャンル', 200), format, rating,
            service:SERVICES.includes(body.service) ? body.service : 'claude'},
-    render:{prefix:DEFAULT_PREFIX, negative:'', loras:[], sfx:'overlay', steps:34, cfg:4.5},
+    render:{prefix:DEFAULT_PREFIX, negative:'', loras:[], steps:34, cfg:4.5},
     name:{meta:{title, format, rating, first_page_side:'left', style:text(body.style, '画風', 2000) || DEFAULT_STYLE}, characters:[], pages:[]},
-    takes:{}, adopted:{}, task:null,
+    takes:{}, adopted:{}, layers:{}, task:null,
   }
   await writeProject(project)
   return {id}
@@ -123,12 +129,13 @@ const analyses = new Map()  // project id -> {hash, data}
 async function analyze(project) {
   const doc = {...project.name, meta:{...project.name.meta}}
   const json = JSON.stringify(doc)
-  const hash = createHash('sha1').update(json + project.render.sfx).digest('hex')
+  const {effects, marks} = await typesetCatalog()
+  const hash = createHash('sha1').update(json + 'overlay-v2').digest('hex')
   const cached = analyses.get(project.id)
   if (cached?.hash === hash) return cached.data
   if (!doc.pages?.length) return {pages:[], issues:[], stats:{}}
-  // The helper drops sound effects from the picture prompts when they are lettered on top (sfx = overlay).
-  doc.meta.letter_sfx = project.render.sfx !== 'image'
+  // Text, balloons and the effects/marks drawn as layers stay out of the picture prompts.
+  doc.meta.overlay = [...effects, ...marks]
   const file = join(PROJECTS, project.id, 'name.json')
   await writeFile(file, JSON.stringify(doc, null, 1))
   let data
@@ -368,7 +375,7 @@ async function enqueuePanel(project, data, panelId, body) {
     const loras = [...r.loras, ...inPanel.filter(c => c.lora_name).map(c => ({name:c.lora_name, strength:c.lora_strength ?? 1}))]
     const unique = [...new Map(loras.map(l => [l.name, l])).values()].slice(0, 4)
     const [width, height] = panelSize(placed.bbox, placed.aspect, 1024, 16, 512, 2048)
-    const {id} = await enqueueGenerate({prompt:base, negative:[r.negative, placed.avoid].filter(Boolean).join(', '), width, height, loras:unique, count:int(body.count ?? 2, '枚数', 1, 8),
+    const {id} = await enqueueGenerate({prompt:base, negative:[r.negative, placed.avoid, NO_TEXT].filter(Boolean).join(', '), width, height, loras:unique, count:int(body.count ?? 2, '枚数', 1, 8),
                                         steps:r.steps, cfg:r.cfg, seed:body.seed ?? null, fp8:true})
     Object.assign(take, {job:id, width, height, loras:unique})
   } else {
@@ -551,7 +558,6 @@ async function updateSettings(body) {
     if ('pages' in body) project.brief.pages = int(body.pages, 'ページ数', 1, 60)
     if ('prefix' in body) r.prefix = text(body.prefix, '先頭のプロンプト', 1000)
     if ('negative' in body) r.negative = text(body.negative, 'ネガティブプロンプト', 2000)
-    if ('sfx' in body) r.sfx = body.sfx === 'image' ? 'image' : 'overlay'
     if ('steps' in body) r.steps = int(body.steps, 'step 数', 1, 100)
     if ('cfg' in body) { const v = Number(body.cfg); if (!(v >= 1 && v <= 20)) throw Error('CFG は 1〜20 です'); r.cfg = v }
     if ('loras' in body) {
@@ -637,6 +643,236 @@ async function serveFile(params) {
   return data && new Response(data, {headers:{'content-type':'image/' + (ext === 'jpg' ? 'jpeg' : ext), 'cache-control':'private, max-age=604800'}})
 }
 
+// ---------- lettering and effects layers (写植・演出) ----------
+
+let catalog
+/** Sound-effect styles and the effect/mark names typeset.py draws (cached). */
+async function typesetCatalog() {
+  catalog ??= run(TYPESET_PYTHON, ['-I', TYPESET, 'styles'], {timeout:60000}).then(({stdout}) => JSON.parse(stdout))
+    .catch(error => { catalog = undefined; throw Error('写植の準備ができていません（.runtime/manga-venv と fonts）: ' + error.message) })
+  return catalog
+}
+
+let worker = null
+const waiting = new Map()
+/** The resident typesetter: one JSON line per request. */
+function typeset(panels) {
+  if (!worker) {
+    worker = spawn(TYPESET_PYTHON, ['-I', TYPESET, 'serve'], {cwd:HERE, stdio:['pipe', 'pipe', 'pipe']})
+    let buffer = ''
+    worker.stdout.on('data', chunk => {
+      buffer += chunk
+      let end
+      while ((end = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, end); buffer = buffer.slice(end + 1)
+        try { const res = JSON.parse(line); waiting.get(res.id)?.resolve(res); waiting.delete(res.id) } catch {}
+      }
+    })
+    worker.stderr.on('data', chunk => process.stderr.write('[manga typeset] ' + chunk))
+    const fail = () => { worker = null; for (const w of waiting.values()) w.reject(Error('写植の処理が止まりました')); waiting.clear() }
+    worker.on('exit', fail)
+    worker.on('error', fail)
+  }
+  const id = randomBytes(6).toString('hex')
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { waiting.delete(id); reject(Error('写植が時間内に終わりませんでした')) }, 120000)
+    waiting.set(id, {resolve:res => { clearTimeout(timer); res.error ? reject(Error(res.error)) : resolve(res.panels) }, reject})
+    worker.stdin.write(JSON.stringify({id, panels}) + '\n')
+  })
+}
+
+const rendered = new Map()  // hash -> {svg, boxes}
+/** SVG overlays of a page's panels: stored layers, or the automatic ones from the name. */
+async function overlays(project, data, pageNumber) {
+  const page = data.pages.find(p => p.number === pageNumber)
+  if (!page) throw Error('ページが見つかりません')
+  const items = page.panels.map(panel => {
+    const layers = project.layers?.[panel.id]?.items ?? panel.layers
+    const req = {aspect:panel.aspect, layers, seed:project.id + '/' + panel.id}
+    return {panel, req, hash:createHash('sha1').update(JSON.stringify(req)).digest('hex')}
+  })
+  const missing = items.filter(item => !rendered.has(item.hash))
+  if (missing.length) {
+    const out = await typeset(missing.map(item => item.req))
+    missing.forEach((item, i) => rendered.set(item.hash, out[i]))
+    if (rendered.size > 3000) rendered.delete(rendered.keys().next().value)
+  }
+  return Object.fromEntries(items.map(item => [item.panel.id, {...rendered.get(item.hash),
+    source:project.layers?.[item.panel.id]?.source || 'auto', layers:item.req.layers}]))
+}
+
+const LAYER_TYPES = ['balloon', 'sfx', 'text', 'effect', 'mark']
+const BALLOON_STYLES = ['speech', 'shout', 'whisper', 'thought', 'narration', 'monologue']
+const clamp = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n * 1000) / 1000)) : d }
+
+/** Keeps only known layer fields with sane values. */
+async function cleanLayers(items) {
+  const {styles, effects, marks} = await typesetCatalog()
+  const styleKeys = new Set(styles.map(s => s.key))
+  if (!Array.isArray(items)) throw Error('層の形が正しくありません')
+  return items.slice(0, 60).filter(l => l && LAYER_TYPES.includes(l.type)).map(l => {
+    const t = String(l.text ?? '').slice(0, 200)
+    switch (l.type) {
+      case 'balloon': {
+        const lines = (Array.isArray(l.lines) ? l.lines : String(l.text ?? '').split(/[／/]/)).map(x => String(x).slice(0, 40)).filter(Boolean).slice(0, 12)
+        const out = {type:'balloon', style:BALLOON_STYLES.includes(l.style) ? l.style : 'speech', lines,
+                     x:clamp(l.x, -0.15, 1, 0.5), y:clamp(l.y, -0.15, 1, 0.05), w:clamp(l.w, 0.03, 1.2, 0.2), h:clamp(l.h, 0.03, 1.2, 0.3)}
+        if (Array.isArray(l.tail) && l.tail.length === 2) out.tail = [clamp(l.tail[0], -0.5, 1.5, 0.5), clamp(l.tail[1], -0.5, 1.5, 0.5)]
+        if (l.size !== undefined) out.size = clamp(l.size, 0.3, 2, 1)
+        return out
+      }
+      case 'sfx': return {type:'sfx', text:t.slice(0, 24), style:styleKeys.has(l.style) ? l.style : 'impact', x:clamp(l.x, -0.15, 1, 0.1), y:clamp(l.y, -0.15, 1, 0.1),
+        size:clamp(l.size, 0.02, 0.8, 0.14), vertical:l.vertical !== false, rotate:clamp(l.rotate, -90, 90, 0),
+        ...(l.color === 'white' || l.color === 'black' ? {color:l.color} : {})}
+      case 'text': return {type:'text', text:t, x:clamp(l.x, -0.15, 1, 0.1), y:clamp(l.y, -0.15, 1, 0.1), size:clamp(l.size, 0.01, 0.3, 0.04),
+        vertical:!!l.vertical, ...(styleKeys.has(l.style) ? {style:l.style} : {})}
+      case 'effect': return effects.includes(l.name) ? {type:'effect', name:l.name, cx:clamp(l.cx, -0.5, 1.5, 0.5), cy:clamp(l.cy, -0.5, 1.5, 0.5),
+        r:clamp(l.r, 0, 1.5, 0.28), angle:clamp(l.angle, -360, 360, 0), density:clamp(l.density, 0.2, 3, 1)} : null
+      case 'mark': return marks.includes(l.name) ? {type:'mark', name:l.name, x:clamp(l.x, -0.15, 1.1, 0.5), y:clamp(l.y, -0.15, 1.1, 0.1),
+        size:clamp(l.size, 0.02, 0.5, 0.08), rotate:clamp(l.rotate, -180, 180, 0)} : null
+    }
+  }).filter(Boolean)
+}
+
+async function saveLayers(body) {
+  const items = body.reset ? null : await cleanLayers(body.items)
+  return withProject(String(body.project), project => {
+    findPanel(project, String(body.panel))
+    project.layers ??= {}
+    if (items === null) delete project.layers[body.panel]
+    else project.layers[body.panel] = {items, source:'edited', at:new Date().toISOString()}
+    return {ok:true}
+  })
+}
+
+let letteringRules
+async function letteringContext() {
+  if (letteringRules) return letteringRules
+  const {styles, effects, marks} = await typesetCatalog()
+  const manpu = JSON.parse(await readFile(join(SKILL, 'scripts/data/manpu.json'), 'utf8'))
+  const ja = (group, key) => manpu[group]?.[key]?.ja || manpu.marks?.[key]?.ja || manpu.effects?.[key]?.ja || key
+  letteringRules = [
+    `<file path="references/dialogue-and-lettering.md">\n${await readFile(join(SKILL, 'references/dialogue-and-lettering.md'), 'utf8')}\n</file>`,
+    '<file path="書き文字のスタイル（sfx の style）">\n' + styles.map(s => `- ${s.key}: ${s.ja}。${s.use}`).join('\n') + '\n</file>',
+    '<file path="層で描ける効果（effect の name）">\n' + effects.map(k => `${k}=${ja('effects', k)}`).join('、') + '\n</file>',
+    '<file path="層で描ける漫符（mark の name）">\n' + marks.map(k => `${k}=${ja('marks', k)}`).join('、') + '\n</file>',
+  ].join('\n\n')
+  return letteringRules
+}
+
+const LAYER_SCHEMA = `## 層の書き方（座標はコマの中の割合。x は幅、y は高さに対して 0〜1。左上が 0,0）
+- 吹き出し: {"type":"balloon","style":"speech|shout|whisper|thought|narration|monologue","lines":["右の列","次の列"],"x":左上x,"y":左上y,"w":幅,"h":高さ,"tail":[話者の口元のx,y]}
+  縦書き。lines は右の列から。1 列はおよそ 4〜9 字。文字の大きさは枠に合わせて自動で決まるので、w・h を字数に合う大きさにする（目安: 1 列 6 字・2 列なら w 0.12〜0.2、h 0.3〜0.45 をコマの縦横比で調整）。
+  ナレーション・モノローグは tail なしの四角。叫びは shout（トゲ）、心の声は thought（雲）、ささやきは whisper（点線）。
+- 書き文字（擬音）: {"type":"sfx","text":"ドンッ","style":"スタイルの key","x":1 字目の左上x,"y":y,"size":字の高さ（コマの幅に対する比。小さな物音 0.05〜0.08、普通 0.1〜0.16、決め 0.2〜0.35）,"vertical":true|false,"rotate":角度(-45〜45),"color":"black|white"（省略可。ベタの上は white）}
+- 作中の文字・欄外: {"type":"text","text":"文字（改行は／）","x":x,"y":y,"size":0.03〜0.06,"vertical":true|false}
+- 効果: {"type":"effect","name":"効果の name","cx":中心x,"cy":中心y,"r":中心の空ける半径（コマの幅に対する比）,"angle":向き（度。スピード線の流れ）,"density":0.5〜2}
+- 漫符: {"type":"mark","name":"漫符の name","x":x,"y":y,"size":0.05〜0.12,"rotate":角度}`
+
+const LETTERING_RULES = `## 写植・演出の約束
+1. 台詞の文字はネームのとおり（句読点・…・！？を含む）。列の分け方は変えてよい。台詞を足したり言い換えたりしない。ネームの台詞は全部どこかの吹き出しに入れる。
+2. 吹き出しは、顔・目・手元・決めの動作・見せたい物に重ねない。コマの中の読む順（右上 → 左下、右綴じ）に、話す順で並べる。話者の近くに置き、しっぽの先は話者の口元。枠越えは x・y が -0.1 まで。
+3. 書き文字は絵の動きと音の出どころに沿わせ、場面に合うスタイルを選ぶ。人物の顔にはかけない。決めのコマでは大きく、角度をつけてよい。小さな物音は小さく。
+4. 演出（集中線・スピード線・フラッシュなど）は、ネームの effects と、場面の beat を強めるときだけ。集中線・フラッシュの中心は見せたいもの、r は主題（顔・手）を覆わない大きさ。何もかもに線を足さない。
+5. 漫符はネームの manpu を、その人物の頭の横・上に。感情を言い当てる程度に小さく。
+6. 絵が無いコマは、ネームと人物の位置（右・中央・左）から推定して置く。`
+
+/** Starts the AI lettering of a page (or some of its panels): it looks at each panel picture and places the layers. */
+async function startLetter(body) {
+  const id = String(body.project)
+  if (tasks.has(id)) throw Error('このプロジェクトでは AI が作業中です')
+  const instruction = text(body.instruction, '指示', 3000)
+  const service = SERVICES.includes(body.service) ? body.service : null
+  let pageNumber, only
+  await withProject(id, project => {
+    pageNumber = int(body.page, 'ページ', 1, project.name.pages.length)
+    only = Array.isArray(body.panels) && body.panels.length ? body.panels.map(String) : null
+    project.task = {state:'running', kind:'P' + pageNumber + (only ? ' ' + only.join('・') : '') + ' の写植・演出',
+                    service:service || project.brief.service, started:new Date().toISOString()}
+  })
+  const controller = new AbortController()
+  tasks.set(id, controller)
+  letterTask(id, pageNumber, only, instruction, service, controller.signal)
+    .catch(async error => withProject(id, project => {
+      project.task = {...project.task, state:controller.signal.aborted ? 'cancelled' : 'error',
+                      message:controller.signal.aborted ? '中止しました' : error.message, finished:new Date().toISOString()}
+    }).catch(() => {}))
+    .finally(() => tasks.delete(id))
+  return {ok:true}
+}
+
+async function letterTask(id, pageNumber, only, instruction, chosen, signal) {
+  const project = await readProject(id)
+  const service = chosen || project.brief.service
+  const data = await analyze(project)
+  const page = data.pages.find(p => p.number === pageNumber)
+  const name = project.name.pages.find(p => p.number === pageNumber)
+  const panels = page.panels.filter(p => !only || only.includes(p.id))
+  if (!panels.length) throw Error('コマが見つかりません')
+  const crops = join(PROJECTS, id, 'crops')
+  await rm(crops, {recursive:true, force:true})
+  await mkdir(crops, {recursive:true})
+  const cast = new Map(project.name.characters.map(c => [c.id, c]))
+  const vision = service === 'claude'
+  const blocks = []
+  for (const placed of panels) {
+    const panel = name.panels.find(p => p.id === placed.id)
+    const file = project.adopted?.[placed.id]?.file
+    let picture = null
+    if (file && vision) {
+      picture = placed.id.replace(/[^\w.-]/g, '_') + '.png'
+      await run(PYTHON, ['-I', HELPER, 'crop', join(PROJECTS, id, 'images', file), join(crops, picture), String(placed.aspect)], {timeout:60000})
+    }
+    blocks.push({
+      id:placed.id, aspect_w_over_h:placed.aspect, picture:picture ? './' + picture : null,
+      beat:panel.beat, shot:panel.shot, angle:panel.angle, detail:panel.detail,
+      characters:(panel.characters || []).map(c => ({id:c.id, name:cast.get(c.id)?.name, pos:c.pos, pose:c.pose, expression:c.expression, manpu:c.manpu})),
+      text:(panel.text || []).map(t => ({type:t.type || 'dialogue', speaker:t.speaker ? cast.get(t.speaker)?.name || t.speaker : undefined,
+                                         text:Array.isArray(t.lines) ? t.lines.join('／') : t.text})),
+      effects:panel.effects, current_layers:project.layers?.[placed.id]?.items ?? placed.layers,
+    })
+  }
+  const prompt = `あなたは日本語の漫画の写植と仕上げ（吹き出し・台詞・書き文字・効果線・漫符）を担当します。絵は Anima が人物と背景だけを描いてあり、文字と演出はあなたが層として載せます。` +
+    (vision ? '\n各コマの picture（このフォルダの画像。コマの枠と同じ縦横比に切り抜き済み）を Read で必ず見て、顔・手・見せたい物の位置を確かめてから置いてください。' : '\n（このモデルでは絵を見られないので、ネームと人物の位置から推定して置いてください。）') +
+    `\n\n${await letteringContext()}\n\n${LAYER_SCHEMA}\n\n${LETTERING_RULES}\n\n## このページ\nP${pageNumber}。狙い: ${name.purpose || '—'}\n` +
+    (instruction ? `\n## 作者の指示（最優先）\n${instruction}\n` : '') +
+    `\n## コマ（読む順）\n${JSON.stringify(blocks, null, 1)}\n\n## 出力\n最後に \`\`\`json で {"panels":[{"id":"コマの id","layers":[...]}],"note":"置き方の要点を 1〜3 行（日本語）"} を 1 つだけ。current_layers は叩き台で、良ければ流用してよい。`
+  const answer = vision ? await runVision(prompt, crops, signal) : await runCli(service, prompt, AbortSignal.any([signal, AbortSignal.timeout(20 * 60000)]))
+  const fenced = [...answer.matchAll(/```(?:json)?\s*\n([\s\S]*?)\n```/g)].map(m => m[1])
+  let value
+  for (const candidate of (fenced.length ? fenced : [answer.slice(answer.indexOf('{'), answer.lastIndexOf('}') + 1)]).reverse()) {
+    try { value = JSON.parse(candidate); break } catch {}
+  }
+  if (!Array.isArray(value?.panels)) throw Error('AI の返答から層を読み取れませんでした')
+  const cleaned = []
+  for (const item of value.panels) if (panels.some(p => p.id === item?.id)) cleaned.push([item.id, await cleanLayers(item.layers || [])])
+  await withProject(id, project => {
+    project.layers ??= {}
+    for (const [panelId, items] of cleaned) project.layers[panelId] = {items, source:'ai', at:new Date().toISOString()}
+    project.task = {...project.task, state:'done', finished:new Date().toISOString(),
+                    message:(String(value.note || '').slice(0, 600) || '') + `（${cleaned.length} コマ）`}
+  })
+}
+
+/** Claude Code that may only read the panel pictures in `dir`. */
+async function runVision(prompt, dir, signal) {
+  const file = await executable('claude')
+  const args = ['-p', ...optionArgs('claude', await cliOptions('claude')), '--output-format', 'json', '--tools', 'Read', '--allowedTools', 'Read',
+                '--strict-mcp-config', '--no-session-persistence']
+  const stdout = await new Promise((resolve, reject) => {
+    const child = spawn(file, args, {cwd:dir, stdio:['pipe', 'pipe', 'pipe'], signal:AbortSignal.any([signal, AbortSignal.timeout(20 * 60000)])})
+    let out = '', err = ''
+    child.stdout.on('data', c => { out += c })
+    child.stderr.on('data', c => { err = (err + c).slice(-2000) })
+    child.on('error', reject)
+    child.on('close', code => code === 0 ? resolve(out) : reject(Error('Claude Code: ' + (err.trim() || 'コード ' + code))))
+    child.stdin.end(prompt)
+  })
+  const data = JSON.parse(stdout)
+  if (data.is_error || (data.subtype && data.subtype !== 'success')) throw Error('Claude Code: ' + String(data.result || data.subtype))
+  return String(data.result || '')
+}
+
 export function registerMangaApi(web) {
   web.effect(() => web.connection.fetch.register({
     path:'/api/darask.manga', methods:['GET', 'POST'], requestBody:'buffered',
@@ -648,6 +884,12 @@ export function registerMangaApi(web) {
           if (params.has('file')) return await serveFile(params) ?? reply({error:'ファイルが見つかりません'}, 404)
           if (params.has('project')) return reply(await getProject(params.get('project')))
           if (params.has('layouts')) return reply({layouts:await layouts()})
+          if (params.has('styles')) return reply(await typesetCatalog())
+          if (params.has('overlay')) {
+            const id = params.get('overlay')
+            const {project, analysis} = await withProject(id, async project => ({project, analysis:await analyze(project)}), false)
+            return reply({panels:await overlays(project, analysis, Number(params.get('page')))})
+          }
           return reply({projects:await listProjects(), services:SERVICES.map(id => ({id, label:agentNames[id] || id})),
                         loras:await listLoraNames().catch(() => [])})
         }
@@ -656,7 +898,7 @@ export function registerMangaApi(web) {
         const actions = {
           create:createProject, delete:b => deleteProject(b.project), write:startWrite, cancelWrite:b => cancelWrite(b.project),
           settings:updateSettings, character:updateCharacter, page:updatePage, panel:updatePanel,
-          generate, edit, adopt, removeTake,
+          generate, edit, adopt, removeTake, layers:saveLayers, letter:startLetter,
         }
         const action = actions[body.action]
         if (!action) return reply({error:'不明な操作です'}, 400)
@@ -679,6 +921,6 @@ export function registerMangaApi(web) {
       }
     })()
     const timer = setInterval(() => sweep().catch(() => {}), 5000)
-    return () => { clearInterval(timer); for (const c of tasks.values()) c.abort() }
+    return () => { clearInterval(timer); for (const c of tasks.values()) c.abort(); worker?.kill(); worker = null }
   }, 'Manga studio sweep')
 }

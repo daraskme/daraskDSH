@@ -75,22 +75,30 @@ window.__ModuleLoader__.load({
 
     // ---------- page rendering ----------
 
-    function Lettering({panel, sfx}) {
-      return h(React.Fragment,null,
-        panel.balloons.map((b, i) => h('div',{key:'b' + i,className:'mg-balloon mg-' + b.type,
-          style:{left:pct(b.bbox[0]),top:pct(b.bbox[1]),width:pct(b.bbox[2] - b.bbox[0]),height:pct(b.bbox[3] - b.bbox[1]),
-                 fontSize:'calc(' + (b.cs / 10) + 'cqw * 0.92)'}},
-          h('span',null,b.lines.join('\n')))),
-        sfx && panel.texts.filter(t => t.type === 'sfx').map((t, i) => h('div',{key:'s' + i,className:'mg-sfx',
-          style:{left:pct(t.bbox[0]),top:pct(t.bbox[1]),width:pct(t.bbox[2] - t.bbox[0]),height:pct(t.bbox[3] - t.bbox[1]),
-                 fontSize:((t.bbox[2] - t.bbox[0]) / 12) + 'cqw'}},t.lines.join(''))))
+    const PAD = 0.15  // typeset.py: the overlay SVG reaches this far outside the panel (balloons over the frame)
+    const svgUrl = svg => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+    const padded = b => {
+      const w = b[2] - b[0], hh = b[3] - b[1]
+      return {left:pct(b[0] - PAD * w),top:pct(b[1] - PAD * hh),width:pct(w * (1 + 2 * PAD)),height:pct(hh * (1 + 2 * PAD))}
     }
 
-    /** One page: panels at their boxes with the adopted pictures, balloons lettered on top. */
+    /** The lettering/effects overlays of one page (SVG from the server), refreshed when the project changes. */
+    function useOverlays(project, number) {
+      const [panels,setPanels] = React.useState({})
+      React.useEffect(() => {
+        let stop = false
+        get('?overlay=' + encodeURIComponent(project.id) + '&page=' + number).then(d => { if (!stop) setPanels(d.panels) }).catch(() => {})
+        return () => { stop = true }
+      }, [project.id, number, project.updated])
+      return panels
+    }
+
+    /** One page: panels at their boxes with the adopted pictures; balloons, lettering and effects as layers on top. */
     function Page({data, page, onPanel, selected, small}) {
       const {project} = data
       const name = project.name.pages.find(p => p.number === page.number)
       const beats = new Map((name?.panels || []).map(p => [p.id, p]))
+      const overlays = useOverlays(project, page.number)
       return h('div',{className:'mg-page' + (small ? ' is-small' : ''),style:{aspectRatio:'1 / ' + page.aspect}},
         page.panels.map((panel, index) => {
           const file = adoptedFile(project, panel.id)
@@ -104,10 +112,11 @@ window.__ModuleLoader__.load({
               : !small && h('span',{className:'mg-beat'},(index + 1) + '. ' + (beats.get(panel.id)?.beat || '')),
             busy && h('span',{className:'mg-badge'},busy.progress || TAKE_STATE[busy.state]))
         }),
-        page.panels.map(panel => h(Lettering,{key:'l' + panel.id,panel,sfx:project.render.sfx !== 'image'})))
+        page.panels.map(panel => overlays[panel.id] && h('img',{key:'o' + panel.id,className:'mg-overlay',alt:'',
+          src:svgUrl(overlays[panel.id].svg),style:padded(panel.bbox)})))
     }
 
-    /** Draws the page as a PNG (pictures, frames, balloons with vertical text). */
+    /** Draws the page as a PNG: pictures, frames, then the overlays (all paths, so they look the same everywhere). */
     async function exportPage(data, page) {
       const W = 1654, H = Math.round(W * page.aspect)
       const canvas = document.createElement('canvas')
@@ -116,6 +125,7 @@ window.__ModuleLoader__.load({
       g.fillStyle = '#fff'; g.fillRect(0, 0, W, H)
       const sx = v => v / 1000 * W, sy = v => v / 1000 * H
       const load = src => new Promise(resolve => { const img = new Image(); img.onload = () => resolve(img); img.onerror = () => resolve(null); img.src = src })
+      const overlays = (await get('?overlay=' + encodeURIComponent(data.project.id) + '&page=' + page.number)).panels
       for (const panel of page.panels) {
         const [x1, y1, x2, y2] = panel.bbox, x = sx(x1), y = sy(y1), w = sx(x2) - x, hh = sy(y2) - y
         const file = adoptedFile(data.project, panel.id)
@@ -129,43 +139,19 @@ window.__ModuleLoader__.load({
         g.restore()
         g.lineWidth = 4; g.strokeStyle = '#000'; g.strokeRect(x, y, w, hh)
       }
-      const vertical = (lines, cx, top, size, font) => {
-        g.font = font.replace('SIZE', size + 'px'); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000'
-        const colW = size * 1.25
-        lines.forEach((line, c) => {
-          const x = cx + (lines.length - 1) * colW / 2 - c * colW
-          ;[...line].forEach((ch, r) => {
-            const y = top + size * (r + 0.5) * 1.05
-            if ('ー―－〜~…‥（）()「」『』'.includes(ch)) { g.save(); g.translate(x, y); g.rotate(Math.PI / 2); g.fillText(ch, 0, 0); g.restore() }
-            else if ('、。'.includes(ch)) g.fillText(ch, x + size * 0.55, y - size * 0.45)
-            else g.fillText(ch, x, y)
-          })
-        })
-      }
       for (const panel of page.panels) {
-        for (const b of panel.balloons) {
-          const x = sx(b.bbox[0]), y = sy(b.bbox[1]), w = sx(b.bbox[2]) - x, hh = sy(b.bbox[3]) - y
-          g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 3
-          g.beginPath()
-          if (b.type === 'narration' || b.type === 'monologue') g.rect(x, y, w, hh)
-          else g.ellipse(x + w / 2, y + hh / 2, w / 2 * 1.08, hh / 2 * 1.08, 0, 0, Math.PI * 2)
-          g.fill(); if (b.type !== 'monologue') g.stroke()
-          const size = Math.max(10, sx(b.cs) * 0.92), rows = Math.max(...b.lines.map(l => [...l].length))
-          vertical(b.lines, x + w / 2, y + hh / 2 - rows * size * 1.05 / 2, size, (b.type === 'shout' ? 'bold ' : '') + 'SIZE ' + SERIF)
-        }
-        if (data.project.render.sfx !== 'image') for (const t of panel.texts.filter(t => t.type === 'sfx')) {
-          const x = sx(t.bbox[0]), y = sy(t.bbox[1]), w = sx(t.bbox[2]) - x, hh = sy(t.bbox[3]) - y
-          const chars = [...t.lines.join('')], size = Math.min(w, hh / Math.max(1, chars.length) / 1.05)
-          g.save(); g.lineWidth = size / 6; g.strokeStyle = '#fff'; g.font = '900 ' + size + 'px ' + SANS; g.textAlign = 'center'; g.textBaseline = 'middle'
-          chars.forEach((ch, r) => { const cy = y + size * (r + 0.5) * 1.05; g.strokeText(ch, x + w / 2, cy); g.fillStyle = '#000'; g.fillText(ch, x + w / 2, cy) })
-          g.restore()
-        }
+        const o = overlays[panel.id]
+        const img = o && await load(svgUrl(o.svg))
+        if (!img) continue
+        const [x1, y1, x2, y2] = panel.bbox, w = sx(x2) - sx(x1), hh = sy(y2) - sy(y1)
+        g.drawImage(img, sx(x1) - PAD * w, sy(y1) - PAD * hh, w * (1 + 2 * PAD), hh * (1 + 2 * PAD))
       }
       const link = document.createElement('a')
       link.download = (data.project.name.meta.title || 'manga') + '-p' + String(page.number).padStart(3, '0') + '.png'
       link.href = canvas.toDataURL('image/png')
       link.click()
     }
+
 
     // ---------- project list ----------
 
@@ -267,7 +253,7 @@ window.__ModuleLoader__.load({
       const {project} = data
       const [form,setForm] = React.useState(() => ({title:project.name.meta.title,style:project.name.meta.style,idea:project.brief.idea,
         genre:project.brief.genre,pages:project.brief.pages,prefix:project.render.prefix,negative:project.render.negative,
-        sfx:project.render.sfx,steps:project.render.steps,cfg:project.render.cfg,loras:project.render.loras}))
+        steps:project.render.steps,cfg:project.render.cfg,loras:project.render.loras}))
       const [loras,setLoras] = React.useState([])
       React.useEffect(() => { get('').then(d => setLoras(d.loras)).catch(() => {}) }, [])
       const set = patch => setForm(f => ({...f,...patch}))
@@ -290,8 +276,6 @@ window.__ModuleLoader__.load({
             h(Button,{type:'button',size:'sm',variant:'outline',onClick:() => set({loras:form.loras.filter((_, k) => k !== i)})},'外す'))),
           form.loras.length < 4 && h(Button,{type:'button',size:'sm',variant:'outline',className:'mg-start',onClick:() => set({loras:[...form.loras,{name:'',strength:1}]})},'LoRA を追加')),
         h('div',{className:'mg-grid'},
-          h('label',null,h('span',null,'擬音'),h('select',{value:form.sfx,onChange:e => set({sfx:e.target.value})},
-            h('option',{value:'overlay'},'写植で載せる（絵に描かせない）'),h('option',{value:'image'},'絵に描かせる'))),
           h('label',null,h('span',null,'step'),h('input',{type:'number',min:1,max:100,value:form.steps,onChange:e => set({steps:e.target.value})})),
           h('label',null,h('span',null,'CFG'),h('input',{type:'number',min:1,max:20,step:0.1,value:form.cfg,onChange:e => set({cfg:e.target.value})}))),
         h('div',{className:'mg-actions'},h(Button,{type:'submit',variant:'primary',size:'sm',disabled:busy},'保存')))
@@ -446,6 +430,7 @@ window.__ModuleLoader__.load({
             h(Button,{size:'sm',variant:'outline',className:'mg-start',disabled:busy,onClick:() => act({action:'page',project:project.id,page:number,addPanel:true})},'＋ コマを足す'),
             name.tiers && !name.layout && h('p',{className:'mg-meta'},'段の高さ比: ' + name.tiers.join(' / '))),
           h('div',{className:'mg-card'},h('h3',null,'検査'),h(Issues,{issues:analysis.issues,where:'P' + number})),
+          h(LetterBox,{data,act,busy,page:number}),
           h(WriteBox,{data,act,busy,page:number})))
     }
 
@@ -530,6 +515,118 @@ window.__ModuleLoader__.load({
               take.state === 'queued' || take.state === 'running' ? '取り消す' : '消す'))))
     }
 
+    // ---------- lettering and effects layers ----------
+
+    const LAYER_LABEL = {balloon:'吹き出し',sfx:'書き文字',text:'文字',effect:'効果',mark:'漫符'}
+    const BALLOON_STYLES = [['speech','ふつう'],['shout','叫び（トゲ）'],['whisper','ささやき（点線）'],['thought','心の声（雲）'],['narration','ナレーション（四角）'],['monologue','モノローグ（枠なし）']]
+    let catalogPromise
+    function useCatalog() {
+      const [catalog,setCatalog] = React.useState(null)
+      React.useEffect(() => { (catalogPromise ??= get('?styles=1')).then(setCatalog).catch(() => { catalogPromise = undefined }) }, [])
+      return catalog
+    }
+
+    function LetterBox({data, act, busy, page, panels}) {
+      const {project} = data
+      const [instruction,setInstruction] = React.useState('')
+      const running = project.task?.state === 'running'
+      return h('div',{className:'mg-card'},
+        h('h3',null,panels ? 'AI でこのコマの写植・演出' : 'AI でこのページの写植・演出'),
+        h('p',{className:'mg-meta'},'吹き出し・台詞・書き文字・効果線・漫符は絵に描かせず、AI（Claude Code）が絵を見て層として置きます。置いた後は下の画面で動かして直せます。'),
+        h('textarea',{rows:2,value:instruction,disabled:busy || running,placeholder:'指示（任意）例: ダンッは画面を横切るほど大きく。吹き出しは鷹野の頭の左に',
+          onChange:e => setInstruction(e.target.value)}),
+        h('div',{className:'mg-actions'},h(Button,{size:'sm',variant:'primary',disabled:busy || running,
+          onClick:() => act({action:'letter',project:project.id,page,panels,instruction,service:'claude'},'AI に頼みました（1 ページ 1〜3 分）')},running ? 'AI が作業中' : 'AI に置かせる')))
+    }
+
+    /** One panel large: picture, overlay, and draggable handles for each layer; the selected layer's fields below. */
+    function LayerEditor({data, page, placed, act, busy}) {
+      const {project} = data
+      const overlays = useOverlays(project, page.number)
+      const o = overlays[placed.id]
+      const catalog = useCatalog()
+      const [items,setItems] = React.useState(null)   // local copy while editing
+      const [sel,setSel] = React.useState(-1)
+      const [drag,setDrag] = React.useState(null)
+      const box = React.useRef(null)
+      React.useEffect(() => { setItems(null); setSel(-1) }, [placed.id])
+      const layers = items ?? o?.layers ?? []
+      const dirty = items !== null
+      const file = adoptedFile(project, placed.id)
+      const update = (i, patch) => setItems(layers.map((l, k) => k === i ? {...l,...patch} : l))
+      const save = async next => { if (await act({action:'layers',project:project.id,panel:placed.id,items:next ?? layers}, '保存しました')) setItems(null) }
+      function onDown(e, i, part) {
+        e.preventDefault(); e.stopPropagation(); setSel(i)
+        const rect = box.current.getBoundingClientRect()
+        setDrag({i, part, x:e.clientX, y:e.clientY, w:rect.width, h:rect.height, start:layers[i]})
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+      }
+      function onMove(e) {
+        if (!drag) return
+        const dx = (e.clientX - drag.x) / drag.w, dy = (e.clientY - drag.y) / drag.h
+        const l = drag.start, r3 = v => Math.round(v * 1000) / 1000
+        if (drag.part === 'tail') update(drag.i, {tail:[r3((l.tail?.[0] ?? 0.5) + dx), r3((l.tail?.[1] ?? 0.5) + dy)]})
+        else if (l.type === 'effect') update(drag.i, {cx:r3(l.cx + dx), cy:r3(l.cy + dy)})
+        else update(drag.i, {x:r3(l.x + dx), y:r3(l.y + dy)})
+      }
+      function onUp() { if (drag) { setDrag(null); if (items) save(items) } }
+      const add = type => {
+        const base = {balloon:{type,style:'speech',lines:['台詞'],x:0.4,y:0.05,w:0.15,h:0.3},sfx:{type,text:'ドンッ',style:'impact',x:0.1,y:0.1,size:0.14,vertical:true,rotate:0},
+          text:{type,text:'文字',x:0.1,y:0.8,size:0.04,vertical:false},effect:{type,name:'focus_lines',cx:0.5,cy:0.5,r:0.3,angle:0,density:1},
+          mark:{type,name:'sweat_drops',x:0.5,y:0.1,size:0.08,rotate:0}}[type]
+        const next = [...layers, base]; setItems(next); setSel(next.length - 1)
+      }
+      const l = layers[sel]
+      const field = (label, key, attrs = {}) => h('label',null,h('span',null,label),h('input',{type:'number',step:0.01,value:l[key] ?? '',...attrs,
+        onChange:e => update(sel, {[key]:e.target.value === '' ? undefined : Number(e.target.value)})}))
+      return h('div',{className:'mg-card mg-layers'},
+        h('div',{className:'mg-stagewrap'},h('div',{className:'mg-stage',ref:box,style:{aspectRatio:String(placed.aspect)},onPointerMove:onMove,onPointerUp:onUp,onPointerCancel:onUp,
+            onPointerDown:() => setSel(-1)},
+          file ? h('img',{className:'mg-stage-pic',src:fileUrl(project.id, file),alt:''}) : h('span',{className:'mg-beat'},'絵がまだありません'),
+          o && !dirty && h('img',{className:'mg-stage-over',src:svgUrl(o.svg),alt:''}),
+          o && dirty && h('img',{className:'mg-stage-over is-stale',src:svgUrl(o.svg),alt:''}),
+          (o?.boxes || []).map((b, i) => b && layers[i] && h('div',{key:i,className:'mg-handle' + (sel === i ? ' is-selected' : ''),title:LAYER_LABEL[layers[i].type],
+            style:(() => {
+              const s0 = o.layers[i] || {}, li = layers[i]
+              const dx = li.type === 'effect' ? (li.cx - (s0.cx ?? li.cx)) : (li.x - (s0.x ?? li.x)), dy = li.type === 'effect' ? (li.cy - (s0.cy ?? li.cy)) : (li.y - (s0.y ?? li.y))
+              const [x1, y1, x2, y2] = li.type === 'effect' ? [li.cx - 0.04, li.cy - 0.04, li.cx + 0.04, li.cy + 0.04] : [b[0] + (dx || 0), b[1] + (dy || 0), b[2] + (dx || 0), b[3] + (dy || 0)]
+              return {left:(x1 * 100) + '%',top:(y1 * 100) + '%',width:((x2 - x1) * 100) + '%',height:((y2 - y1) * 100) + '%'}
+            })(),
+            onPointerDown:e => onDown(e, i, 'body')})),
+          l?.type === 'balloon' && l.tail && h('div',{className:'mg-tail',style:{left:(l.tail[0] * 100) + '%',top:(l.tail[1] * 100) + '%'},title:'しっぽの先',
+            onPointerDown:e => onDown(e, sel, 'tail')}))),
+        h('div',{className:'mg-row'},
+          h('span',{className:'mg-meta'},o ? (o.source === 'ai' ? 'AI が置いた層' : o.source === 'edited' ? '手で直した層' : 'ネームからの自動配置') + ' · ' + layers.length + ' 個' : '読み込み中…'),
+          ['balloon','sfx','text','effect','mark'].map(t => h(Button,{key:t,size:'sm',variant:'outline',disabled:busy,onClick:() => add(t)},'＋' + LAYER_LABEL[t])),
+          dirty && h(Button,{size:'sm',variant:'primary',disabled:busy,onClick:() => save()},'保存'),
+          o?.source !== 'auto' && h(Button,{size:'sm',variant:'outline',disabled:busy,onClick:() => confirm('このコマの層を、ネームからの自動配置に戻しますか？') &&
+            act({action:'layers',project:project.id,panel:placed.id,reset:true},'自動配置に戻しました').then(() => setItems(null))},'自動配置に戻す')),
+        h('p',{className:'mg-meta'},'枠をドラッグで移動（離すと保存）。吹き出しを選ぶと、しっぽの先（丸）も動かせます。'),
+        l && h('div',{className:'mg-layer-form'},
+          h('strong',null,LAYER_LABEL[l.type]),
+          l.type === 'balloon' && h(React.Fragment,null,
+            h('label',null,h('span',null,'形'),h('select',{value:l.style,onChange:e => update(sel,{style:e.target.value})},BALLOON_STYLES.map(([v, t]) => h('option',{key:v,value:v},t)))),
+            h('label',{className:'mg-wide'},h('span',null,'台詞（列は ／ で区切る。右の列から）'),h('input',{value:(l.lines || []).join('／'),onChange:e => update(sel,{lines:e.target.value.split(/[／/]/)})})),
+            field('幅', 'w'), field('高さ', 'h'), field('字の大きさ（倍）', 'size'),
+            h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:!!l.tail,onChange:e => update(sel,{tail:e.target.checked ? [l.x + l.w / 2, Math.min(1, l.y + l.h + 0.15)] : undefined})}),h('span',null,'しっぽ'))),
+          (l.type === 'sfx' || l.type === 'text') && h(React.Fragment,null,
+            h('label',{className:'mg-wide'},h('span',null,'文字'),h('input',{value:l.text || '',onChange:e => update(sel,{text:e.target.value})})),
+            l.type === 'sfx' && h('label',{className:'mg-wide'},h('span',null,'書き文字のスタイル'),h('select',{value:l.style || 'impact',onChange:e => update(sel,{style:e.target.value})},
+              (catalog?.styles || []).map(s => h('option',{key:s.key,value:s.key},s.ja + ' — ' + s.use)))),
+            field('大きさ（コマの幅比）', 'size'), l.type === 'sfx' && field('回転（度）', 'rotate', {step:1}),
+            h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:l.vertical !== false && (l.type === 'sfx' || !!l.vertical),onChange:e => update(sel,{vertical:e.target.checked})}),h('span',null,'縦書き')),
+            l.type === 'sfx' && h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:l.color === 'white',onChange:e => update(sel,{color:e.target.checked ? 'white' : undefined})}),h('span',null,'白抜き（ベタの上）'))),
+          l.type === 'effect' && h(React.Fragment,null,
+            h('label',{className:'mg-wide'},h('span',null,'効果'),h('select',{value:l.name,onChange:e => update(sel,{name:e.target.value})},(catalog?.effects || [l.name]).map(n => h('option',{key:n,value:n},n)))),
+            field('中心を空ける半径', 'r'), field('密度', 'density', {step:0.1}), field('向き（度）', 'angle', {step:5})),
+          l.type === 'mark' && h(React.Fragment,null,
+            h('label',{className:'mg-wide'},h('span',null,'漫符'),h('select',{value:l.name,onChange:e => update(sel,{name:e.target.value})},(catalog?.marks || [l.name]).map(n => h('option',{key:n,value:n},n)))),
+            field('大きさ', 'size'), field('回転（度）', 'rotate', {step:5})),
+          h('div',{className:'mg-actions mg-wide'},
+            h(Button,{size:'sm',variant:'primary',disabled:busy || !dirty,onClick:() => save()},'反映して保存'),
+            h(Button,{size:'sm',variant:'outline',disabled:busy,onClick:() => { const next = layers.filter((_, k) => k !== sel); setSel(-1); save(next) }},'この層を消す'))))
+    }
+
     function PanelView({data, number, panelId, act, busy, messages, go}) {
       const {project, analysis} = data
       const page = analysis.pages.find(p => p.number === number)
@@ -540,16 +637,13 @@ window.__ModuleLoader__.load({
       const index = page.panels.indexOf(placed)
       const neighbor = d => page.panels[index + d]?.id
       const withRefs = project.name.characters.filter(c => c.ref && (name.characters || []).some(x => x.id === c.id)).length
-      const b = placed.bbox
       return h('div',{className:'mg-body mg-pagebody'},
         h('div',{className:'mg-pagecol'},
           h('div',{className:'mg-toolbar'},
             h(Button,{size:'sm',variant:'outline',disabled:!neighbor(-1),onClick:() => go({page:number,panel:neighbor(-1)})},'← 前のコマ'),
             h('strong',null,'P' + number + ' · ' + (index + 1) + ' コマ目'),
             h(Button,{size:'sm',variant:'outline',disabled:!neighbor(1),onClick:() => go({page:number,panel:neighbor(1)})},'次のコマ →')),
-          h('div',{className:'mg-zoom',style:{aspectRatio:(b[2] - b[0]) + ' / ' + ((b[3] - b[1]) * page.aspect)}},
-            h('div',{className:'mg-zoom-page',style:{width:(100000 / (b[2] - b[0])) + '%',left:(-b[0] * 100 / (b[2] - b[0])) + '%',top:(-b[1] * 100 / (b[3] - b[1])) + '%'}},
-              h(Page,{data,page,selected:panelId}))),
+          h(LayerEditor,{data,page,placed,act,busy}),
           h('div',{className:'mg-card'},
             h('h3',null,'絵を作る'),
             h('div',{className:'mg-grid'},
@@ -564,7 +658,7 @@ window.__ModuleLoader__.load({
               : placed.prompt)),
             messages),
           h('div',{className:'mg-card'},h('h3',null,'候補と修正'),h(Takes,{data,panelId,act,busy}))),
-        h('div',{className:'mg-side'},h(PanelEditor,{data,panel:name,act,busy}),
+        h('div',{className:'mg-side'},h(LetterBox,{data,act,busy,page:number,panels:[panelId]}),h(PanelEditor,{data,panel:name,act,busy}),
           h('div',{className:'mg-card'},h('h3',null,'検査'),h(Issues,{issues:analysis.issues,where:panelId}))))
     }
 
@@ -670,18 +764,17 @@ window.__ModuleLoader__.load({
         .mg-panel img{width:100%;height:100%;object-fit:cover;display:block}
         .mg-beat{display:block;padding:4px;font-size:max(9px,1.6cqw);line-height:1.35;color:#777;text-align:left;overflow:hidden;height:100%;box-sizing:border-box}
         .mg-badge{position:absolute;right:4px;bottom:4px;font-size:max(9px,1.4cqw);background:rgba(0,0,0,.7);color:#fff;padding:1px 6px;border-radius:999px}
-        .mg-balloon{position:absolute;z-index:3;display:flex;align-items:center;justify-content:center;background:#fff;border:max(1px,.25cqw) solid #000;border-radius:50%;pointer-events:none;box-sizing:border-box}
-        .mg-balloon span{writing-mode:vertical-rl;white-space:pre;line-height:1.2;font-family:${SERIF};color:#000;letter-spacing:.02em}
-        .mg-balloon.mg-narration,.mg-balloon.mg-monologue{border-radius:0}
-        .mg-balloon.mg-monologue{border-color:transparent}
-        .mg-balloon.mg-thought{border-style:dashed}
-        .mg-balloon.mg-shout span{font-weight:800}
-        .mg-balloon.mg-whisper{border-style:dotted}
-        .mg-sfx{position:absolute;z-index:3;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;font-family:${SANS};font-weight:900;color:#000;-webkit-text-stroke:.15em #fff;paint-order:stroke fill;pointer-events:none;white-space:nowrap}
-        .mg-page.is-small .mg-balloon span{font-size:inherit}
-        .mg-zoom{position:relative;width:100%;overflow:hidden;background:#fff;box-shadow:0 0 0 1px var(--dsw-alias-border-l3)}
-        .mg-zoom-page{position:absolute}
-        .mg-zoom-page .mg-page{box-shadow:none}
+        .mg-overlay{position:absolute;z-index:3;pointer-events:none;display:block}
+        .mg-stagewrap{overflow:hidden;padding:7%;background:#e9e9e9;border-radius:8px}
+        .mg-stage{position:relative;width:100%;background:#fff;box-shadow:0 0 0 2px #000;overflow:visible;touch-action:none;user-select:none}
+        .mg-stage-pic{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
+        .mg-stage-over{position:absolute;left:-15%;top:-15%;width:130%;height:130%;pointer-events:none}
+        .mg-stage-over.is-stale{opacity:.45}
+        .mg-handle{position:absolute;z-index:2;box-sizing:border-box;border:1.5px dashed rgba(59,130,246,.9);border-radius:4px;cursor:move;background:rgba(59,130,246,.06)}
+        .mg-handle.is-selected{border-style:solid;border-width:2px;background:rgba(59,130,246,.14)}
+        .mg-tail{position:absolute;z-index:3;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:#3b82f6;border:2px solid #fff;cursor:crosshair}
+        .mg-layer-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;align-items:end;padding:10px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px}
+        .mg-layer-form>strong,.mg-layer-form .mg-wide{grid-column:1/-1}
         .mg-layouts{display:grid;gap:8px}
         .mg-layout-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:420px;overflow-y:auto}
         .mg-layout{display:grid;gap:2px;padding:6px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-base);color:inherit;font:inherit;cursor:pointer;text-align:left}
