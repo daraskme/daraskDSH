@@ -1,5 +1,5 @@
-// MiniMax H3 text conditioning: Qwen3-VL-32B language model truncated after layer 50
-// (T2V path, text only). Written from ComfyUI's comfy/text_encoders/{llama,qwen3vl,minimax}.py
+// MiniMax H3 / P-H3 image text conditioning: the Qwen3-VL language model (32B truncated after layer 50 for
+// H3, 4B for P-H3; text only). Shapes come from the weights. Written from ComfyUI's comfy/text_encoders/{llama,qwen3vl,minimax}.py
 // (GPL-3.0) and comfy-kitchen's INT8 ConvRot linear semantics (Apache-2.0).
 //
 // Weights are the released int8 ConvRot checkpoint: every projection is int8 [N, K] with a
@@ -8,7 +8,9 @@
 #include <ATen/ATen.h>
 #include <torch/library.h>
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 #include <string>
 
 namespace {
@@ -16,7 +18,7 @@ namespace {
 using at::Tensor;
 using Weights = c10::Dict<std::string, Tensor>;
 
-constexpr int64_t kHidden = 5120, kHeads = 64, kKvHeads = 8, kHeadDim = 128, kLayers = 50;
+constexpr int64_t kHeadDim = 128, kH3Layers = 50;
 constexpr double kEps = 1e-6, kRopeTheta = 5000000.0;
 constexpr int64_t kGroup = 256;
 
@@ -58,11 +60,16 @@ Tensor rope(const Tensor& x, const Tensor& cos, const Tensor& sin) {
     return (f * cos + rotated * sin).to(x.scalar_type());
 }
 
-Tensor encode(const Weights& weights, const Tensor& token_ids) {
-    TORCH_CHECK(token_ids.dim() == 1 && token_ids.numel() > 16,
-                "H3 text encoder: expected 1-D token ids with more than 16 tokens");
-    const auto embed = weights.at("model.embed_tokens.weight");
+// Runs `layers` decoder layers. Returns the input of every layer in `taps` (in order) and, last, the output of
+// the final layer (before the final norm). Weights are under `prefix` ("model." or "model.language_model.").
+std::vector<Tensor> run(const Weights& weights, const std::string& prefix, const Tensor& token_ids, int64_t layers,
+                        const std::vector<int64_t>& taps) {
+    TORCH_CHECK(token_ids.dim() == 1 && token_ids.numel() > 0, "text encoder: expected 1-D token ids");
+    const auto embed = weights.at(prefix + "embed_tokens.weight");
     const auto options = embed.options().dtype(at::kFloat);
+    const int64_t kHidden = embed.size(1);
+    const int64_t kHeads = weights.at(prefix + "layers.0.self_attn.q_proj.weight").size(0) / kHeadDim;
+    const int64_t kKvHeads = weights.at(prefix + "layers.0.self_attn.k_proj.weight").size(0) / kHeadDim;
     const auto dtype = at::kFloat;
     const auto linear = dequant_linear;
     const auto h = hadamard(options);
@@ -73,9 +80,20 @@ Tensor encode(const Weights& weights, const Tensor& token_ids) {
     angles = at::cat({angles, angles}, -1).unsqueeze(1);
     const auto cos = angles.cos(), sin = angles.sin();
 
-    auto x = embed.index_select(0, token_ids.to(embed.device())).to(at::kFloat);
-    for (int64_t i = 0; i < kLayers; ++i) {
-        const auto p = "model.layers." + std::to_string(i);
+    Tensor x;
+    if (weights.contains(prefix + "embed_tokens.weight_scale")) {  // int8 convrot table: dequantize and un-rotate the rows
+        auto ids = token_ids.to(embed.device());
+        auto rows = embed.index_select(0, ids).to(at::kFloat) *
+                    weights.at(prefix + "embed_tokens.weight_scale").to(at::kFloat).view({-1, 1}).index_select(0, ids);
+        // ComfyUI dequantizes the rows into the checkpoint's original dtype (BF16)
+        x = at::matmul(rows.view({t, kHidden / kGroup, kGroup}), h).view({t, kHidden}).to(at::kBFloat16).to(at::kFloat);
+    } else {
+        x = embed.index_select(0, token_ids.to(embed.device())).to(at::kFloat);
+    }
+    std::vector<Tensor> out;
+    for (int64_t i = 0; i < layers; ++i) {
+        if (std::find(taps.begin(), taps.end(), i) != taps.end()) out.push_back(x.clone());
+        const auto p = prefix + "layers." + std::to_string(i);
         auto normed = at::rms_norm(x, {kHidden}, weights.at(p + ".input_layernorm.weight").to(dtype), kEps);
         auto q = linear(normed, projection(weights, p + ".self_attn.q_proj"), h).view({t, kHeads, kHeadDim});
         auto k = linear(normed, projection(weights, p + ".self_attn.k_proj"), h).view({t, kKvHeads, kHeadDim});
@@ -93,7 +111,20 @@ Tensor encode(const Weights& weights, const Tensor& token_ids) {
         auto up = linear(normed, projection(weights, p + ".mlp.up_proj"), h);
         x = x + linear(at::silu(gate) * up, projection(weights, p + ".mlp.down_proj"), h);
     }
-    return x;  // unnormalized hidden state after layer 50
+    out.push_back(x);
+    return out;
+}
+
+Tensor encode(const Weights& weights, const Tensor& token_ids) {
+    TORCH_CHECK(token_ids.numel() > 16, "H3 text encoder: expected more than 16 tokens");
+    return run(weights, "model.", token_ids, kH3Layers, {}).back();  // unnormalized hidden state after layer 50
+}
+
+Tensor hadamard256() { return hadamard(at::TensorOptions().dtype(at::kFloat).device(at::kCUDA)); }
+
+std::vector<Tensor> encode_layers(const Weights& weights, const std::string& prefix, const Tensor& token_ids, int64_t layers,
+                                  std::vector<int64_t> taps) {
+    return run(weights, prefix, token_ids, layers, taps);
 }
 
 
@@ -101,5 +132,8 @@ Tensor encode(const Weights& weights, const Tensor& token_ids) {
 
 TORCH_LIBRARY_FRAGMENT(dsh_h3, m) {
     m.def("encode_text(Dict(str, Tensor) weights, Tensor token_ids) -> Tensor", &encode);
+    m.def("encode_text_layers(Dict(str, Tensor) weights, str prefix, Tensor token_ids, int layers, int[] taps) -> Tensor[]",
+          &encode_layers);
+    m.def("hadamard256() -> Tensor", &hadamard256);  // the ConvRot rotation (symmetric), FP32 on CUDA
 
 }

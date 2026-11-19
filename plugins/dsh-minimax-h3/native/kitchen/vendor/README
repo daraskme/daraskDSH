@@ -1,6 +1,9 @@
 Vendored from https://github.com/Comfy-Org/comfy-kitchen at tag v0.2.41 (commit cbc44a5), unmodified:
 - comfy_kitchen/backends/cuda/sage_attention/: sol_attn*.cu, sol_layout.cuh and its headers
   (math, mma, cp_async, numeric_conversion, permuted_smem .cuh)
-- comfy_kitchen/backends/cuda/ops/: rms_rope.cu, rope_device.cuh
-- comfy_kitchen/backends/cuda/: dtype_dispatch.cuh, utils.cuh
+- comfy_kitchen/backends/cuda/ops/: rms_rope.cu, rope_device.cuh, int8_linear.cu, cutlass_gemm_int8.cu,
+  cutlass_gemm_common.cuh
+- comfy_kitchen/backends/cuda/: dtype_dispatch.cuh, utils.cuh, input_act_codes.h
+The CUTLASS GEMM needs NVIDIA CUTLASS (BSD-3) at comfy-kitchen's pinned commit d4b4b49, fetched to
+.runtime/h3-native/cutlass by build_kitchen.py's caller (header-only, not vendored here).
 Licensed under the Apache License 2.0 (see LICENSE and NOTICE in this directory).

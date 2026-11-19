@@ -1,5 +1,5 @@
-// LibTorch bindings for the vendored comfy-kitchen v0.2.41 kernels (Apache-2.0): Sol-Attn and the
-// fused per-head RMSNorm + split-half RoPE. Kernels live in libdsh_kitchen.so (nvcc, plain C ABI,
+// LibTorch bindings for the vendored comfy-kitchen v0.2.41 kernels (Apache-2.0): Sol-Attn, the
+// fused per-head RMSNorm + split-half RoPE, and the int8 convrot W8A8 linear. Kernels live in libdsh_kitchen.so (nvcc, plain C ABI,
 // see ../build_kitchen.py); every launch uses the caller's current LibTorch CUDA stream.
 #include <ATen/ATen.h>
 #include <c10/cuda/CUDAStream.h>
@@ -35,6 +35,12 @@ void launch_apply_rope_kernel(const void* q, const void* k, const void* freqs, v
                               int64_t qo_s3, int64_t ko_s0, int64_t ko_s1, int64_t ko_s2, int64_t ko_s3, int64_t f_s0,
                               int64_t f_s1, int64_t f_s2, int64_t f_s3, int64_t f_s4, int64_t f_s5,
                               int input_dtype_code, int freqs_dtype_code, bool has_k, bool split_half, cudaStream_t stream);
+void launch_quantize_int8_rowwise_convrot64_kernel(const void* input, void* output, void* scales, int64_t num_rows,
+                                                   int64_t num_cols, int group_size, int input_dtype_code, bool stochastic,
+                                                   int act_code, uint64_t seed, const void* act_weight, float act_eps,
+                                                   cudaStream_t stream);
+bool launch_cutlass_int8_dequant(const void* A, const void* B, const void* xs, const void* ws, const void* bias, void* D,
+                                 int64_t M, int64_t N, int64_t K, int out_dtype_code, cudaStream_t stream);
 }
 
 namespace dsh_kitchen {
@@ -122,6 +128,35 @@ void apply_rope_split_half1(const at::Tensor& x, const at::Tensor& freqs, at::Te
                              true, stream_of(x));
 }
 
+// comfy-kitchen int8_linear for an int8 convrot (group 256) weight [N, K] with per-row scales, on the path ComfyUI
+// takes for M > 2 rows: the fused rotate + row-wise int8 quantizer (optionally SwiGLU of a [M, 2K] input first),
+// then the CUTLASS int8 GEMM with the dequant (and bias) epilogue. act: 0 none, 2 SwiGLU.
+at::Tensor int8_linear(const at::Tensor& x, const at::Tensor& weight, const at::Tensor& weight_scale,
+                       const std::optional<at::Tensor>& bias, int64_t act) {
+    auto x2 = x.reshape({-1, x.size(-1)}).contiguous();
+    const int64_t m = x2.size(0), k = x2.size(1) / (act == 2 ? 2 : 1), n = weight.size(0);
+    TORCH_CHECK(act == 0 || act == 2, "dsh_kitchen.int8_linear: act must be 0 or 2");
+    TORCH_CHECK(weight.scalar_type() == at::kChar && weight.size(1) == k && weight.is_contiguous(),
+                "dsh_kitchen.int8_linear: weight must be contiguous int8 [N, K]");
+    TORCH_CHECK(m > 2 && k % 256 == 0 && k <= 16384, "dsh_kitchen.int8_linear: only the fused convrot path (M > 2, K % 256 == 0)");
+    const auto stream = stream_of(x2);
+    auto q = at::empty({m, k}, x2.options().dtype(at::kChar));
+    auto scale = at::empty({m, 1}, x2.options().dtype(at::kFloat));
+    launch_quantize_int8_rowwise_convrot64_kernel(x2.const_data_ptr(), q.data_ptr(), scale.data_ptr(), m, k, 256, dtype_code(x2),
+                                                  false, (int)act, 0, nullptr, 0.0f, stream);
+    auto ws = weight_scale.to(at::kFloat).reshape(-1).contiguous();
+    if (ws.numel() != n) ws = ws.expand({n}).contiguous();
+    auto out = at::empty({m, n}, x2.options());
+    std::optional<at::Tensor> b;
+    if (bias.has_value() && bias->defined()) b = bias->to(out.scalar_type()).contiguous();
+    TORCH_CHECK(launch_cutlass_int8_dequant(q.const_data_ptr(), weight.const_data_ptr(), scale.const_data_ptr(),
+                                            ws.const_data_ptr(), ptr(b), out.data_ptr(), m, n, k, dtype_code(out), stream),
+                "dsh_kitchen.int8_linear: no CUTLASS config for this shape");
+    auto sizes = x.sizes().vec();
+    sizes.back() = n;
+    return out.view(sizes);
+}
+
 }  // namespace dsh_kitchen
 
 using namespace dsh_kitchen;
@@ -133,6 +168,7 @@ at::Tensor apply_rope_split_half1_op(const at::Tensor& x, const at::Tensor& freq
 }
 
 TORCH_LIBRARY(dsh_kitchen, m) {
+    m.def("int8_linear(Tensor x, Tensor weight, Tensor weight_scale, Tensor? bias, int act) -> Tensor", &int8_linear);
     m.def("apply_rope_split_half1(Tensor x, Tensor freqs) -> Tensor", &apply_rope_split_half1_op);
     m.def("rms_rope_split_half_(Tensor(a!) q, Tensor(b!) k, Tensor freqs, Tensor q_scale, Tensor k_scale, float epsilon, "
           "int rot_dim) -> ()", &rms_rope_split_half_);

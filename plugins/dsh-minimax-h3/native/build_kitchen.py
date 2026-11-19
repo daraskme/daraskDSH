@@ -15,11 +15,13 @@ VENDOR = HERE / "kitchen/vendor"
 BUILD = ROOT / ".runtime/h3-native/build"
 NVCC = ROOT / ".runtime/h3-native/toolchain/nvidia/cu13/bin/nvcc"
 TORCH_CU13 = ROOT / ".runtime/comfy-venv/lib/python3.12/site-packages/nvidia/cu13"
-FLAGS = ["-Xcompiler", "-fPIC", "-O3", "-std=c++17", "--expt-relaxed-constexpr", "--expt-extended-lambda",
+CUTLASS = ROOT / ".runtime/h3-native/cutlass/include"  # NVIDIA CUTLASS at d4b4b49 (comfy-kitchen v0.2.41 pin)
+FLAGS = ["-Xcompiler", "-fPIC", "-O3", "-std=c++20", "--expt-relaxed-constexpr", "--expt-extended-lambda",
          "--use_fast_math", "-diag-suppress", "550,128,177", "-gencode", "arch=compute_120a,code=sm_120a",
          "-U__CUDA_NO_HALF_OPERATORS__", "-U__CUDA_NO_HALF_CONVERSIONS__", "-U__CUDA_NO_BFLOAT16_OPERATORS__",
          "-U__CUDA_NO_BFLOAT16_CONVERSIONS__", "-U__CUDA_NO_BFLOAT162_OPERATORS__", "-U__CUDA_NO_BFLOAT162_CONVERSIONS__",
-         f"-I{VENDOR}", f"-I{TORCH_CU13 / 'include'}", f"-I{TORCH_CU13 / 'include/cccl'}"]
+         f"-I{VENDOR}", f"-I{TORCH_CU13 / 'include'}", f"-I{TORCH_CU13 / 'include/cccl'}", f"-I{CUTLASS}",
+         "-DCOMFY_HAVE_CUTLASS"]
 
 objects = []
 (BUILD / "obj").mkdir(parents=True, exist_ok=True)

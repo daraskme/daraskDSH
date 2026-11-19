@@ -8,10 +8,14 @@ window.__ModuleLoader__.load({
     const PURPOSES = [['character','キャラ','一人の人物・キャラの見た目を覚えさせる'],
       ['style','スタイル','絵柄・画風を覚えさせる'],['concept','コンセプト','ポーズ・物・状況などの概念を覚えさせる']]
     const STAGES = {queued:'待機中',starting:'準備中',captioning:'キャプション作成',training:'学習',loading:'モデル読み込み',
-      generating:'生成中',done:'完了',error:'エラー',cancelled:'中止'}
+      generating:'生成中',decoding:'動画を作成',done:'完了',error:'エラー',cancelled:'中止'}
     const SIZES = [['832x1216','縦 832×1216'],['1216x832','横 1216×832'],['1024x1024','正方形 1024×1024'],
       ['896x1152','縦 896×1152'],['1152x896','横 1152×896']]
     const imageUrl = (job, file) => API + '?image=' + encodeURIComponent(job.id + '/' + file)
+    const VIDEO_SIZES = [['1280x704','横 1280×704'],['704x1280','縦 704×1280'],['960x960','正方形 960×960'],['640x384','横 640×384（試し用）']]
+    const IMAGE_SIZES = [['2912x2912','正方形 2912×2912（標準）'],['3872x2176','横 3872×2176'],['2176x3872','縦 2176×3872'],
+      ['2048x2048','正方形 2048×2048'],['1024x1024','正方形 1024×1024（試し用）']]
+    const LENGTHS = [[39,'1.6 秒（39 フレーム）'],[73,'3.0 秒（73 フレーム）'],[124,'5.2 秒（124 フレーム）'],[175,'7.3 秒（175 フレーム）']]
 
     async function api(body) {
       const res = await fetch(API, body ? {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)} : {})
@@ -41,11 +45,11 @@ window.__ModuleLoader__.load({
       const images = job.images || []
       const each = images.length ? images.reduce((sum, image) => sum + image.seconds, 0) / images.length : 0
       return h('section',{className:'dsh-anima-card','aria-live':'polite'},
-        h('header',null,h('strong',{className:'dsh-anima-name'},'画像生成 · ' + r.count + ' 枚'),
+        h('header',null,h('strong',{className:'dsh-anima-name'},(r.kind === 'ph3' ? 'P-H3 画像 · ' : '画像生成 · ') + r.count + ' 枚'),
           h('span',{className:'dsh-anima-stage dsh-anima-'+job.stage},
             job.queued ? STAGES.queued + '（' + job.position + ' 番目）' : STAGES[job.stage] || job.stage)),
         h('p',{className:'dsh-anima-prompt'},r.prompt),
-        h('div',{className:'dsh-anima-meta'},r.width + '×' + r.height + ' · ' + r.steps + ' step · CFG ' + r.cfg + ' · seed ' + r.seed +
+        h('div',{className:'dsh-anima-meta'},r.width + '×' + r.height + (r.kind === 'ph3' ? ' · 8 step' : ' · ' + r.steps + ' step · CFG ' + r.cfg + (r.fp8 === false ? ' · BF16' : ' · FP8')) + ' · seed ' + r.seed +
           (r.count > 1 ? '〜' + (r.seed + r.count - 1) : '') +
           (r.loras?.length ? ' · ' + r.loras.map(l => l.name.replace(/\.safetensors$/,'') + ' ×' + l.strength).join(', ') : '')),
         job.stage === 'generating' && h(React.Fragment,null,h('progress',{max:1,value:fraction}),
@@ -59,8 +63,114 @@ window.__ModuleLoader__.load({
         (job.running || job.queued) && h(Button,{variant:'outline',size:'sm',onClick:() => cancel(job.id)},job.running ? '中止' : '取り消す'))
     }
 
+    function VideoJob({job, cancel}) {
+      const r = job.request || {}
+      const video = job.images?.[0]
+      return h('section',{className:'dsh-anima-card','aria-live':'polite'},
+        h('header',null,h('strong',{className:'dsh-anima-name'},'H3 動画'),
+          h('span',{className:'dsh-anima-stage dsh-anima-'+job.stage},
+            job.queued ? STAGES.queued + '（' + job.position + ' 番目）' : STAGES[job.stage] || job.stage)),
+        h('p',{className:'dsh-anima-prompt'},r.prompt),
+        h('div',{className:'dsh-anima-meta'},r.width + '×' + r.height + ' · ' + r.length + ' フレーム · seed ' + r.seed),
+        job.stage === 'generating' && h(React.Fragment,null,h('progress',{max:8,value:job.step || 0}),
+          h('div',{className:'dsh-anima-meta'},'step ' + (job.step || 0) + ' / 8')),
+        job.message && job.stage !== 'done' && h('p',{className:job.stage === 'error' ? 'dsh-anima-error' : 'dsh-anima-meta',role:job.stage === 'error' ? 'alert' : undefined},job.message),
+        video && h('video',{className:'dsh-anima-video',src:imageUrl(job, video.file),controls:true,playsInline:true,preload:'metadata',
+          style:{aspectRatio:r.width + '/' + r.height}}),
+        job.stage === 'done' && h('p',{className:'dsh-anima-meta'},'読み込み ' + Math.round(job.load_seconds || 0) + ' 秒 · 生成 ' +
+          Math.round(job.sample_seconds || 0) + ' 秒 · 合計 ' + Math.round(job.total_seconds || 0) + ' 秒'),
+        (job.running || job.queued) && h(Button,{variant:'outline',size:'sm',onClick:() => cancel(job.id)},job.running ? '中止' : '取り消す'))
+    }
+
+    function ImagePanel() {
+      const [form,setForm] = React.useState({prompt:'',size:'2912x2912',count:1,seed:''})
+      const [jobs,setJobs] = useQueue()
+      const [notice,setNotice] = React.useState('')
+      const [error,setError] = React.useState('')
+      const [busy,setBusy] = React.useState(false)
+      const set = patch => setForm(previous => ({...previous,...patch}))
+      async function submit(e) {
+        e.preventDefault()
+        setBusy(true); setError(''); setNotice('')
+        try {
+          const [width, height] = form.size.split('x').map(Number)
+          const data = await api({action:'image',prompt:form.prompt,width,height,count:Number(form.count),
+            seed:form.seed === '' ? null : Number(form.seed)})
+          setJobs(data.jobs)
+          setNotice('キューに追加しました')
+        } catch (e) { setError(e.message) }
+        setBusy(false)
+      }
+      const active = jobs.filter(job => job.running || job.queued).length
+      return h('section',{className:'dsh-anima-panel'},
+        h('header',{className:'dsh-anima-head'},h('h1',null,h(ImageIcon),'P-H3 画像')),
+        h('div',{className:'dsh-anima-body'},
+          h('form',{className:'dsh-anima-card',onSubmit:submit},
+            h('label',null,h('span',null,'プロンプト'),
+              h('textarea',{value:form.prompt,rows:4,required:true,disabled:busy,
+                placeholder:'例: A neon sign that says "OPEN 24/7" above a ramen shop at night in the rain, cinematic photo',
+                onChange:e => set({prompt:e.target.value}),onKeyDown:e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.form.requestSubmit() }})),
+            h('div',{className:'dsh-anima-grid'},
+              h('label',null,h('span',null,'サイズ'),h('select',{value:form.size,disabled:busy,onChange:e => set({size:e.target.value})},
+                IMAGE_SIZES.map(([value,label]) => h('option',{key:value,value},label)))),
+              h('label',null,h('span',null,'枚数'),h('input',{type:'number',min:1,max:16,value:form.count,disabled:busy,onChange:e => set({count:e.target.value})})),
+              h('label',null,h('span',null,'シード'),h('input',{type:'number',min:0,value:form.seed,placeholder:'ランダム',disabled:busy,onChange:e => set({seed:e.target.value})}))),
+            h('div',{className:'dsh-anima-actions'},
+              h(Button,{type:'submit',variant:'primary',disabled:busy || !form.prompt.trim()},
+                active ? 'キューに追加（実行中・待機中 ' + active + ' 件）' : '生成')),
+            h('p',{className:'dsh-anima-meta'},'p-h3-image int8 · euler 8 step。プロンプトはそのまま使います（プロンプト拡張なし）。'),
+            notice && h('p',{className:'dsh-anima-meta',role:'status'},notice),
+            error && h('p',{className:'dsh-anima-error',role:'alert'},error)),
+          h(Queue,{jobs,setJobs,setError})))
+    }
+
+    function VideoPanel() {
+      const [form,setForm] = React.useState({prompt:'',size:'1280x704',length:124,seed:''})
+      const [jobs,setJobs] = useQueue()
+      const [notice,setNotice] = React.useState('')
+      const [error,setError] = React.useState('')
+      const [busy,setBusy] = React.useState(false)
+      const set = patch => setForm(previous => ({...previous,...patch}))
+      async function submit(e) {
+        e.preventDefault()
+        setBusy(true); setError(''); setNotice('')
+        try {
+          const [width, height] = form.size.split('x').map(Number)
+          const data = await api({action:'video',prompt:form.prompt,width,height,length:Number(form.length),
+            seed:form.seed === '' ? null : Number(form.seed)})
+          setJobs(data.jobs)
+          setNotice('キューに追加しました')
+        } catch (e) { setError(e.message) }
+        setBusy(false)
+      }
+      const active = jobs.filter(job => job.running || job.queued).length
+      return h('section',{className:'dsh-anima-panel'},
+        h('header',{className:'dsh-anima-head'},h('h1',null,h(VideoIcon),'H3 動画')),
+        h('div',{className:'dsh-anima-body'},
+          h('form',{className:'dsh-anima-card',onSubmit:submit},
+            h('label',null,h('span',null,'プロンプト（映像と音の説明）'),
+              h('textarea',{value:form.prompt,rows:4,required:true,disabled:busy,
+                placeholder:'例: A close-up of a blue ceramic cup on a wooden table by a window. The camera moves slowly from left to right. Soft morning light, quiet room tone.',
+                onChange:e => set({prompt:e.target.value}),onKeyDown:e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.form.requestSubmit() }})),
+            h('div',{className:'dsh-anima-grid'},
+              h('label',null,h('span',null,'サイズ'),h('select',{value:form.size,disabled:busy,onChange:e => set({size:e.target.value})},
+                VIDEO_SIZES.map(([value,label]) => h('option',{key:value,value},label)))),
+              h('label',null,h('span',null,'長さ'),h('select',{value:form.length,disabled:busy,onChange:e => set({length:e.target.value})},
+                LENGTHS.map(([value,label]) => h('option',{key:value,value},label)))),
+              h('label',null,h('span',null,'シード'),h('input',{type:'number',min:0,value:form.seed,placeholder:'ランダム',disabled:busy,onChange:e => set({seed:e.target.value})}))),
+            h('div',{className:'dsh-anima-actions'},
+              h(Button,{type:'submit',variant:'primary',disabled:busy || !form.prompt.trim()},
+                active ? 'キューに追加（実行中・待機中 ' + active + ' 件）' : '生成')),
+            h('p',{className:'dsh-anima-meta'},'Eros beta7 + VBVR Pro V2 · res_multistep 8 step · SLA。音声つき MP4（24 fps）。'),
+            notice && h('p',{className:'dsh-anima-meta',role:'status'},notice),
+            error && h('p',{className:'dsh-anima-error',role:'alert'},error)),
+          h(Queue,{jobs,setJobs,setError})))
+    }
+
     function Job({job, cancel}) {
       if (job.request?.kind === 'generate') return h(GenerateJob,{job,cancel})
+      if (job.request?.kind === 'h3') return h(VideoJob,{job,cancel})
+      if (job.request?.kind === 'ph3') return h(GenerateJob,{job,cancel})
       const fraction = job.total ? job.done / job.total : 0
       const eta = job.stage === 'training' && job.step_ms && job.total ? (job.total - job.done) * job.step_ms : 0
       return h('section',{className:'dsh-anima-card','aria-live':'polite'},
@@ -133,7 +243,7 @@ window.__ModuleLoader__.load({
     }
 
     function GeneratePanel() {
-      const [form,setForm] = React.useState({prompt:'',negative:'',size:'832x1216',steps:34,cfg:4.5,seed:'',count:1,loras:[]})
+      const [form,setForm] = React.useState({prompt:'',negative:'',size:'832x1216',steps:34,cfg:4.5,seed:'',count:1,loras:[],exact:false})
       const [available,setAvailable] = React.useState([])
       const [jobs,setJobs] = useQueue()
       const [notice,setNotice] = React.useState('')
@@ -150,7 +260,7 @@ window.__ModuleLoader__.load({
           const [width, height] = form.size.split('x').map(Number)
           const data = await api({action:'generate',prompt:form.prompt,negative:form.negative,width,height,steps:Number(form.steps),
             cfg:Number(form.cfg),count:Number(form.count),seed:form.seed === '' ? null : Number(form.seed),
-            loras:form.loras.filter(item => item.name).map(item => ({name:item.name,strength:Number(item.strength)}))})
+            loras:form.loras.filter(item => item.name).map(item => ({name:item.name,strength:Number(item.strength)})),fp8:!form.exact})
           setJobs(data.jobs)
           setNotice('キューに追加しました')
         } catch (e) { setError(e.message) }
@@ -183,10 +293,13 @@ window.__ModuleLoader__.load({
               h('label',null,h('span',null,'シード'),h('input',{type:'number',min:0,value:form.seed,placeholder:'ランダム',disabled:busy,onChange:e => set({seed:e.target.value})})),
               h('label',null,h('span',null,'step'),h('input',{type:'number',min:1,max:100,value:form.steps,disabled:busy,onChange:e => set({steps:e.target.value})})),
               h('label',null,h('span',null,'CFG'),h('input',{type:'number',min:1,max:20,step:0.1,value:form.cfg,disabled:busy,onChange:e => set({cfg:e.target.value})}))),
+            h('label',{className:'dsh-anima-check'},
+              h('input',{type:'checkbox',checked:form.exact,disabled:busy,onChange:e => set({exact:e.target.checked})}),
+              h('span',null,'ComfyUI と同じ画像にする（BF16。約 1.4 倍遅い）')),
             h('div',{className:'dsh-anima-actions'},
               h(Button,{type:'submit',variant:'primary',disabled:busy || !form.prompt.trim()},
                 active ? 'キューに追加（実行中・待機中 ' + active + ' 件）' : '生成')),
-            h('p',{className:'dsh-anima-meta'},'er_sde · simple · Anima base v1.0。ComfyUI と同じ設定なら同じ画像になります。'),
+            h('p',{className:'dsh-anima-meta'},'er_sde · simple · Anima base v1.0。既定は FP8 で高速（構図は同じで細部が変わります）。'),
             notice && h('p',{className:'dsh-anima-meta',role:'status'},notice),
             error && h('p',{className:'dsh-anima-error',role:'alert'},error)),
           h(Queue,{jobs,setJobs,setError})))
@@ -262,6 +375,16 @@ window.__ModuleLoader__.load({
         h('path',{d:'M8.5 3.5l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z',fill:'currentColor',stroke:'none'}))
     }
 
+    function ImageIcon() {
+      return h('svg',{viewBox:'0 0 24 24',width:18,height:18,fill:'none',stroke:'currentColor',strokeWidth:1.6,'aria-hidden':true},
+        h('rect',{x:3.5,y:3.5,width:17,height:17,rx:2.5}),h('circle',{cx:9,cy:9,r:1.8}),h('path',{d:'M3.5 17l5-5 4 4 3-3 5 5'}))
+    }
+
+    function VideoIcon() {
+      return h('svg',{viewBox:'0 0 24 24',width:18,height:18,fill:'none',stroke:'currentColor',strokeWidth:1.6,'aria-hidden':true},
+        h('rect',{x:3,y:6,width:13,height:12,rx:2.5}),h('path',{d:'M16 10.5l5-3v9l-5-3z'}))
+    }
+
     return {inject:['slots'],apply(ctx) {
       const style = document.createElement('style')
       style.textContent = `
@@ -314,6 +437,7 @@ window.__ModuleLoader__.load({
         .dsh-anima-prompt{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
         .dsh-anima-images{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
         .dsh-anima-images img{display:block;width:100%;height:auto;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base)}
+        .dsh-anima-video{display:block;width:100%;height:auto;border-radius:var(--dsw-radius-md);background:#000}
         @media(max-width:650px){.dsh-anima-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dsh-anima-grid label:first-child{grid-column:1/-1}}
         @media(max-width:650px){.dsh-anima-purposes{grid-template-columns:1fr}.dsh-anima-head{padding:8px 12px}.dsh-anima-body{padding:16px 12px}}
       `
@@ -327,6 +451,14 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
         name:'sidebar.panellist',id:'anima-generate',order:22,label:() => 'Anima 生成'
       }, GenerateIcon))
+      ctx.slots.inject('main', () => ctx.slots.register({name:'main',key:'ph3-image'}, ImagePanel))
+      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+        name:'sidebar.panellist',id:'ph3-image',order:24,label:() => 'P-H3 画像'
+      }, ImageIcon))
+      ctx.slots.inject('main', () => ctx.slots.register({name:'main',key:'h3-video'}, VideoPanel))
+      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+        name:'sidebar.panellist',id:'h3-video',order:23,label:() => 'H3 動画'
+      }, VideoIcon))
     }}
   }
 })

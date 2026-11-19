@@ -170,3 +170,38 @@
 
 - 分かったこと: per-head RMSNorm と RoPE を ATen で書くと 1.6e-4 ずれる（RMSNorm の出力を BF16 に丸めてから回転するため）。comfy-kitchen の融合カーネル `rms_rope.cu` を vendor（`kitchen/vendor/` に、依存ヘッダーと一緒に無改変で取り込み）し、ComfyUI と同じように qkv バッファ上で in-place に呼ぶと、attention の出力がビット一致した。
 - 速度: 計測中にユーザーの Anima LoRA 学習が同じ GPU で動いていた（使用率 100%、600 W、2.4 GHz に制限）ため、比較できていない。単体の GEMM も 164 TFLOPS しか出ていなかった。GPU が空いているときに測り直す。
+
+### 手順 5: SLA の本番経路（完了・ビット一致）
+
+- `dit.cpp` に `sol_attn_chunked` の Python ドライバー部分を C++ で移した（RoPE 係数の詰め直し、QKV を 4,096 行ずつ投影して producer へ、初回 step の統計の取得、前 step の `kmean`/`vscale` の再利用、top-k 閾値、sink の範囲）。設定はワークフローと同じ（sla、keep 10%、全 step、extra_tokens 0、exact_kv_and_rows）。統計はブロックごとに 2 個のテンソルで、呼び出し側が持って step をまたいで渡す。
+- 確認（`test_dit_parity.py`、SLA ありの基準 `reference-small`）: step 0（統計の取得）と step 1（前 step の統計を使用）とも、映像・音声の出力がビット一致。
+
+### 手順 6: サンプラー（完了・ビット一致）
+
+- `native/sampler.py`: SigmaShift 10/3 の sigma 表、simple 8 step、CPU の同じ生成器で映像 → 音声の順の noise、res_multistep（最初と最後は Euler、中間は 2 次）、音声の carry と最後の 1/audio_scale。
+- 確認（`test_sampler_parity.py`、captured の条件を入れて seed から通し）: sigma 9 個、noise、step 1 と 7 の DiT 入力（映像・音声）、最終 AV latent がすべてビット一致。
+
+### 手順 7: VAE と MP4（完了・ビット一致）
+
+- `native/vae.py`: 映像 VAE（dully fp16 の ViT3D、36 層）。latent の逆正規化、256 px のタイル（1 行に最大 4 枚をまとめて計算）、17 フレームの時間チャンクと 5 フレームの重なり、画素の逆正規化。ComfyUI と同じく FP16、FP16 累積なしの cuBLAS、flash 優先の SDPA。P-H3 の画像デコーダー（`ph3_image_pixels`）も同じ ViT を使う。
+- `native/audio.py`: 音声 VAE（BigVGAN、FP32）と `max(1, 5×std)` の音量補正。
+- MP4: PyAV で ComfyUI の SaveVideo と同じ設定（libx264 CRF 18、yuv420p BT.709、AAC 32 kHz、映像の尺で音声を切る）。
+- 確認（`test_vae_parity.py`）: 同じ最終 latent から、圧縮前の RGB と波形がビット一致。同じ RGB・波形から書いた MP4 も、ComfyUI の MP4 とデコード後のフレーム・音声が完全一致。
+
+### 通しの実行系と速度
+
+- `native/generate.py`（ジョブ 1 件 = 1 プロセス）: Qwen3-VL 32B で条件を作って解放 → DiT を読み込み LoRA を反映 → サンプリング → VAE → MP4。
+- 通しの出力: 条件だけ ComfyUI と 0.5% 違う（Qwen の FP32 の微差が condition_proj の BF16 化で 1 ulp ずれる）。8 step と SLA の top-k 選択がこれを増幅し、最終 latent は相対 32% 違う。構図・品質は同じで、カメラの動きと細部が変わる（ComfyUI に同程度の入力差を入れても同じことが起きる）。captured の条件を入れればビット一致。
+- 1280×704×121（124 フレーム）、GPU が空いた状態:
+
+| 区間 | ComfyUI（2 回目以降） | ネイティブ |
+|---|---:|---:|
+| モデルの読み込み | 常駐（0 s） | 28.9 s |
+| サンプリング 8 step | 39.0 s | 36.8 s |
+| デコードと MP4 | 10.4 s | 約 10.7 s |
+| 合計 | 48.6–49.6 s | 76.4 s |
+
+### 手順 9: DSH への組み込み（パネルとキューは完了）
+
+- 左サイドバーに「H3 動画」パネル（`plugins/dsh-anima-lora-trainer/client.js`）。LoRA 学習・Anima 生成と同じキュー（`jobs.mjs` の `kind: 'h3'`）で GPU を順番に使う。MP4 はパネルで再生できる。
+- 残り: チャットツール、常駐の採否（読み込みの 28.9 s をどうするか）、手順 8 の FP8、手順 10 の旧経路の削除。

@@ -1,12 +1,14 @@
 // MiniMax H3 audio-video DiT forward for text-to-video (batch 1, no keyframes/references/masks).
 // Written from ComfyUI's comfy/ldm/minimax/model.py (GPL-3.0); every op keeps ComfyUI's dtype and
-// order so the BF16 results can be compared bit for bit. Attention is dense SDPA here; the SLA
-// sparse path replaces it in a later step.
+// order so the BF16 results can be compared bit for bit. Attention is dense SDPA, or the SLA block-sparse
+// path (comfy_extras/nodes_sparse_attention.py "sla", keep 10%, exact_kv_and_rows; comfy-kitchen
+// sol_attn_chunked) when per-block statistics are passed in.
 #include <ATen/ATen.h>
 #include <torch/library.h>
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <set>
 #include <string>
 #include <tuple>
@@ -15,6 +17,19 @@
 namespace dsh_kitchen {  // kitchen/kitchen_ops.cpp (vendored comfy-kitchen kernel, bit-identical to ComfyUI)
 void rms_rope_split_half_(at::Tensor q, at::Tensor k, const at::Tensor& freqs, const at::Tensor& q_scale,
                           const at::Tensor& k_scale, double epsilon, int64_t rot_dim);
+std::vector<int64_t> plan(int64_t batch, int64_t seq_len, int64_t num_heads, int64_t token_aug);
+at::Tensor int8_linear(const at::Tensor& x, const at::Tensor& weight, const at::Tensor& weight_scale,
+                       const std::optional<at::Tensor>& bias, int64_t act);
+void producer_begin(at::Tensor workspace, int64_t batch, int64_t seq_len, int64_t num_heads, int64_t token_aug);
+void producer_chunk(at::Tensor workspace, const at::Tensor& qkv, const at::Tensor& fab, const at::Tensor& qw,
+                    const at::Tensor& kw, const at::Tensor& kmean, const at::Tensor& vscale,
+                    const std::optional<at::Tensor>& block_len, double rope_eps, int64_t rot_dim, int64_t t0,
+                    int64_t m, int64_t batch, int64_t seq_len, int64_t num_heads, int64_t token_aug);
+void attn_core(at::Tensor workspace, at::Tensor out, const at::Tensor& vscale, at::Tensor kmean_next,
+               at::Tensor vamax, const std::optional<at::Tensor>& block_len, bool tail, int64_t batch,
+               int64_t seq_len, int64_t num_heads, double tau, double scale,
+               const std::optional<at::Tensor>& threshold, int64_t sink_start, int64_t sink_end,
+               int64_t sink_q_start, int64_t sink_q_end, int64_t token_aug);
 }
 
 namespace {
@@ -33,6 +48,16 @@ struct Segment {
 };
 
 Tensor f32(const Weights& w, const std::string& name) { return w.at(name).to(at::kFloat); }
+
+// A block projection: BF16 (H3) or int8 convrot W8A8 (P-H3, comfy-kitchen's int8_linear); swiglu feeds fc2.
+Tensor proj(const Weights& w, const std::string& name, const Tensor& x, bool swiglu = false) {
+    if (w.contains(name + ".weight_scale")) {
+        return dsh_kitchen::int8_linear(x, w.at(name + ".weight"), w.at(name + ".weight_scale"), std::nullopt, swiglu ? 2 : 0);
+    }
+    if (!swiglu) return at::linear(x, w.at(name + ".weight"));
+    auto gate_up = x.chunk(2, -1);
+    return at::linear(at::silu(gate_up[0]) * gate_up[1], w.at(name + ".weight"));
+}
 
 // ---- packed layout (PackedLayout, T2V) --------------------------------------------------------
 
@@ -122,7 +147,7 @@ void mod_gate(Tensor& x, const Tensor& gate, const Tensor& other, const std::vec
 
 Tensor attention(const Weights& w, const std::string& p, const Tensor& h, const Tensor& table) {
     const auto s = h.size(0);
-    auto qkv = at::linear(h, w.at(p + ".attn.qkv_proj.weight")).split(kHeads * kHeadDim, -1);
+    auto qkv = proj(w, p + ".attn.qkv_proj", h).split(kHeads * kHeadDim, -1);
     // fused per-head RMSNorm + partial split-half RoPE, in place on the qkv buffer (as ComfyUI)
     auto q = qkv[0].view({1, s, kHeads, kHeadDim}), k = qkv[1].view({1, s, kHeads, kHeadDim});
     dsh_kitchen::rms_rope_split_half_(q, k, table, w.at(p + ".attn.q_norm.weight"), w.at(p + ".attn.k_norm.weight"), kEps,
@@ -132,21 +157,127 @@ Tensor attention(const Weights& w, const std::string& p, const Tensor& h, const 
     auto v = qkv[2].view({s, kHeads, kHeadDim});
     auto out = at::scaled_dot_product_attention(q.transpose(0, 1).unsqueeze(0), k.transpose(0, 1).unsqueeze(0),
                                                 v.transpose(0, 1).unsqueeze(0));
-    return at::linear(out.transpose(1, 2).reshape({s, kHeads * kHeadDim}), w.at(p + ".attn.out_proj.weight"));
+    return proj(w, p + ".attn.out_proj", out.transpose(1, 2).reshape({s, kHeads * kHeadDim}));
+}
+
+
+// ---- SLA (sol_attn_chunked with topk_ratio 0.1, token_aug 0, B = 1) ------------------------------
+
+constexpr int64_t kBlock = 64, kChunk = 4096;
+constexpr double kKeep = 0.1, kVscaleMargin = 1.1, kLog2e = 1.4426950408889634;
+// sol_attn_plan's offsets, in its key order
+enum PlanKey { Tp, NTB, NPAD, NQ, qiP, qs, kiP, ksb, vTi, vsc, kciP, kcs, vcT, thr, cen8, cens, idx, cnt, oPart, mPart,
+               lPart, statsV, qmean };
+
+struct Sparse {
+    Tensor fab;                    // [S, 96, 2] FP32 rope coefficients (_packed_rope_fab)
+    int64_t sink0, sink1, sink_q0, sink_q1;
+    std::vector<Tensor> stats;     // per block: kmean, vscale ([56, 128] FP32), updated in place across steps
+    bool first;                    // the first step: bootstrap the statistics
+};
+
+Tensor packed_rope_fab(const Tensor& table) {
+    auto f = table.reshape({-1, kRotDim / 2, 2, 2});
+    auto fab = at::empty({f.size(0), kRotDim, 2}, f.options().dtype(at::kFloat));
+    const int64_t half = kRotDim / 2;
+    fab.narrow(1, 0, half).select(2, 0).copy_(f.select(2, 0).select(2, 0));
+    fab.narrow(1, 0, half).select(2, 1).copy_(f.select(2, 0).select(2, 1));
+    fab.narrow(1, half, half).select(2, 0).copy_(f.select(2, 1).select(2, 1));
+    fab.narrow(1, half, half).select(2, 1).copy_(f.select(2, 1).select(2, 0));
+    return fab;
+}
+
+Tensor ws_view(const Tensor& ws, int64_t offset, int64_t bytes, at::ScalarType dtype) {
+    return ws.narrow(0, offset, bytes).view(dtype);
+}
+
+Tensor vscale_of(const Tensor& vamax) { return (vamax / 127.0 * kVscaleMargin).clamp_min(1e-8); }
+
+Tensor block_lengths(int64_t t, int64_t n, const at::Device& device) {
+    auto lengths = at::full({n}, double(kBlock), at::TensorOptions().dtype(at::kFloat).device(device));
+    const int64_t tail = t - (n - 1) * kBlock;
+    if (tail < kBlock) lengths[n - 1] = double(tail);
+    return lengths;
+}
+
+// _topk_threshold_from_workspace + _topk_from_pooled (H = 56 heads fit one slice at these lengths)
+Tensor topk_threshold(const Tensor& ws, const std::vector<int64_t>& p, const Tensor& lengths, int64_t s0, int64_t s1) {
+    const int64_t ntb = p[NTB], npad = p[NPAD], d = kHeadDim, h = kHeads;
+    auto c8 = ws_view(ws, p[cen8], h * ntb * d, at::kChar).view({h, ntb, d}).to(at::kFloat);
+    auto csc = ws_view(ws, p[cens], h * ntb * 4, at::kFloat).view({h, ntb});
+    auto ksums = ws_view(ws, p.back() /* scratch */, h * npad * d * 4, at::kFloat).view({h, npad, d}).narrow(1, 0, ntb);
+    auto kc = ksums / lengths.view({1, -1, 1});
+    kc = kc - kc.mean(1, true);
+    // cen8 is stored perm_d'd: gather at perm_d to recover channel order
+    auto dd = at::arange(128, at::kLong);
+    auto kcq = dd.__rshift__(5), rem = dd.bitwise_and(31);
+    auto hh = rem.__rshift__(4), r2 = rem.bitwise_and(15);
+    auto perm = (kcq * 32 + 8 * r2.__rshift__(2) + 4 * hh + r2.bitwise_and(3)).to(ws.device());
+    c8 = c8.index_select(2, perm);
+    const int64_t n = ntb;
+    auto ksc = (kc.abs().amax(-1, true) / 127.0).clamp_min(1e-12);
+    auto k8 = at::round(kc / ksc).clamp_(-127, 127);
+    const int64_t sinks = std::max<int64_t>(0, std::min(s1, n) - std::min(s0, n));
+    const int64_t kk = std::max<int64_t>(0, std::min<int64_t>(n - sinks - 1, std::max<int64_t>(1, (int64_t)std::nearbyint(kKeep * (n - sinks)))));
+    if (kk == 0) return at::full({h, n}, INFINITY, c8.options());
+    auto s = at::bmm(c8, k8.transpose(1, 2));
+    s.mul_((csc * (std::pow(double(d), -0.5) * kLog2e)).unsqueeze(-1)).mul_(ksc.squeeze(-1).unsqueeze(-2));
+    if (s1 > s0) s.narrow(-1, s0, s1 - s0).fill_(-INFINITY);
+    auto kth = std::get<0>(s.topk(kk, -1, true, false)).amin(-1);
+    return (kth - kth.abs() * 1e-5).contiguous();
+}
+
+Tensor sparse_attention(const Weights& w, const std::string& pre, int64_t index, const Tensor& h, const Sparse& sp) {
+    const int64_t t = h.size(0);
+    const auto& qkv_w = w.at(pre + ".attn.qkv_proj.weight");
+    auto qw = w.at(pre + ".attn.q_norm.weight").to(at::kBFloat16).contiguous();
+    auto kw = w.at(pre + ".attn.k_norm.weight").to(at::kBFloat16).contiguous();
+    auto p = dsh_kitchen::plan(1, t, kHeads, 0);
+    auto ws = at::empty({p.back() /* total */}, h.options().dtype(at::kByte));
+    p.pop_back();  // scratch is now last
+    auto lengths = block_lengths(t, p[NTB], h.device());
+    auto produce = [&](const Tensor& km, const Tensor& vs) {
+        dsh_kitchen::producer_begin(ws, 1, t, kHeads, 0);
+        for (int64_t i = 0; i < t; i += kChunk) {
+            const int64_t m = std::min(kChunk, t - i);
+            auto qkv = at::linear(h.narrow(0, i, m), qkv_w).contiguous();
+            dsh_kitchen::producer_chunk(ws, qkv, sp.fab, qw, kw, km, vs, std::nullopt, kEps, kRotDim, i, m, 1, t, kHeads, 0);
+        }
+    };
+    Tensor kmean = sp.stats.at(2 * index), vscale = sp.stats.at(2 * index + 1);
+    const auto f32 = h.options().dtype(at::kFloat);
+    if (sp.first) {
+        produce(at::zeros({kHeads, kHeadDim}, f32), at::ones({kHeads, kHeadDim}, f32));
+        auto ksums = ws_view(ws, p.back(), kHeads * p[NPAD] * kHeadDim * 4, at::kFloat).view({kHeads, p[NPAD], kHeadDim})
+                         .narrow(1, 0, p[NTB]);
+        kmean = ksums.sum(1) / lengths.sum();
+        vscale = vscale_of(ws_view(ws, p[statsV], kHeads * kHeadDim * 4, at::kFloat).view({kHeads, kHeadDim}));
+    }
+    kmean = kmean.contiguous();
+    vscale = vscale.clamp_min(1e-8).contiguous();
+    produce(kmean, vscale);
+    auto out = at::empty({1, t, kHeads, kHeadDim}, h.options().dtype(at::kBFloat16));
+    auto kmean_next = at::empty({kHeads, kHeadDim}, f32);
+    auto vamax = at::empty({kHeads, kHeadDim}, f32);
+    auto threshold = topk_threshold(ws, p, lengths, sp.sink0, sp.sink1);
+    dsh_kitchen::attn_core(ws, out, vscale, kmean_next, vamax, std::nullopt, true, 1, t, kHeads, 1.3,
+                           std::pow(double(kHeadDim), -0.5), threshold, sp.sink0, sp.sink1, sp.sink_q0, sp.sink_q1, 0);
+    sp.stats[2 * index].copy_(kmean_next);
+    sp.stats[2 * index + 1].copy_(vscale_of(vamax));
+    return at::linear(out.view({t, kHeads * kHeadDim}), w.at(pre + ".attn.out_proj.weight"));
 }
 
 Tensor mlp(const Weights& w, const std::string& p, const Tensor& h) {
-    auto gate_up = at::linear(h, w.at(p + ".mlp.fc1.weight")).chunk(2, -1);
-    return at::linear(at::silu(gate_up[0]) * gate_up[1], w.at(p + ".mlp.fc2.weight"));
+    return proj(w, p + ".mlp.fc2", proj(w, p + ".mlp.fc1", h), true);
 }
 
 Tensor block(const Weights& w, int64_t index, Tensor x, const Tensor& t_emb, const std::vector<Segment>& segments,
-             const Tensor& table) {
+             const Tensor& table, const Sparse* sparse = nullptr) {
     const auto p = "blocks." + std::to_string(index);
     auto mod = adaln(w, p + ".adaln_proj", t_emb, 6, 3);  // shift/scale/gate msa, shift/scale/gate mlp
     auto h = at::rms_norm(x, {kHidden}, w.at(p + ".norm1.weight"), kEps);
     mod_scale_shift(h, mod[0], mod[1], segments);
-    mod_gate(x, mod[2], attention(w, p, h, table), segments);
+    mod_gate(x, mod[2], sparse ? sparse_attention(w, p, index, h, *sparse) : attention(w, p, h, table), segments);
     h = at::rms_norm(x, {kHidden}, w.at(p + ".norm2.weight"), kEps);
     mod_scale_shift(h, mod[3], mod[4], segments);
     mod_gate(x, mod[5], mlp(w, p, h), segments);
@@ -163,7 +294,8 @@ std::vector<Segment> segments_from(const std::vector<int64_t>& flat) {
 // ---- forward ------------------------------------------------------------------------------------
 
 std::vector<Tensor> forward_impl(const Weights& w, const Tensor& video_x, const Tensor& audio_x, const Tensor& timestep,
-                                 const Tensor& context, const Tensor& token_tags, double shift_v, double shift_a) {
+                                 const Tensor& context, const Tensor& token_tags, double shift_v, double shift_a,
+                                 const std::vector<Tensor>& stats, bool first) {
     TORCH_CHECK(video_x.dim() == 5 && video_x.size(0) == 1, "H3: video latent must be [1, 24, T, H, W]");
     const auto device = video_x.device();
     const auto dtype = context.scalar_type();
@@ -204,8 +336,13 @@ std::vector<Tensor> forward_impl(const Weights& w, const Tensor& video_x, const 
 
     auto t_emb = time_embedding(w, unique_t, device);
     auto table = rope_table(layout, f32(w, "rope.inv_freq").to(device), dtype);
+    std::optional<Sparse> sparse;
+    if (!stats.empty()) {  // sinks: every block before the video stays exact; audio query blocks run dense
+        const int64_t sink_end = (v0 + kBlock - 1) / kBlock;
+        sparse = Sparse{packed_rope_fab(table), 0, sink_end, a0 / kBlock, sink_end, stats, first};
+    }
     for (int64_t i = 0; w.contains("blocks." + std::to_string(i) + ".norm1.weight"); ++i) {
-        h = block(w, i, h, t_emb, segments, table);
+        h = block(w, i, h, t_emb, segments, table, sparse ? &*sparse : nullptr);
     }
 
     // final layer: rows index t_emb directly (one modality)
@@ -226,7 +363,7 @@ std::vector<Tensor> forward_impl(const Weights& w, const Tensor& video_x, const 
 // MiniMaxH3Model.forward: the sampler carries audio as (sigma_v / sigma_a) * x_audio.
 std::vector<Tensor> forward(const Weights& w, const Tensor& video_x, const Tensor& audio_x, const Tensor& timestep,
                             const Tensor& context, const Tensor& token_tags, double shift_v, double shift_a,
-                            double audio_scale) {
+                            double audio_scale, std::vector<Tensor> stats, bool first) {
     auto audio_src = audio_x;
     Tensor carry, sigma_a;
     auto x_audio = audio_x;
@@ -236,7 +373,7 @@ std::vector<Tensor> forward(const Weights& w, const Tensor& video_x, const Tenso
         carry = (sigma_a / sigma_v).to(audio_src.scalar_type());
         x_audio = audio_src * carry;
     }
-    auto out = forward_impl(w, video_x, x_audio, timestep, context, token_tags, shift_v, shift_a);
+    auto out = forward_impl(w, video_x, x_audio, timestep, context, token_tags, shift_v, shift_a, stats, first);
     if (audio_scale != 1.0) {
         out[1] = (1.0 - audio_scale) * (audio_src * carry) + (1.0 + (audio_scale - 1.0) * sigma_a).to(out[1].scalar_type()) * out[1];
     }
@@ -252,7 +389,8 @@ Tensor block_op(const Weights& w, int64_t index, const Tensor& x, const Tensor& 
 
 TORCH_LIBRARY_FRAGMENT(dsh_h3, m) {
     m.def("dit_forward(Dict(str, Tensor) weights, Tensor video_x, Tensor audio_x, Tensor timestep, Tensor context, "
-          "Tensor token_tags, float shift_video, float shift_audio, float audio_scale) -> Tensor[]", &forward);
+          "Tensor token_tags, float shift_video, float shift_audio, float audio_scale, Tensor(a!)[] sla_stats, "
+          "bool sla_first) -> Tensor[]", &forward);
     m.def("dit_block(Dict(str, Tensor) weights, int index, Tensor x, Tensor t_emb, int[] segments, Tensor rope_table) -> Tensor",
           &block_op);
 }
