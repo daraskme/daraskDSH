@@ -23,22 +23,31 @@ Tensor merge_lora(const Tensor& weight, const Tensor& up, const Tensor& down, co
     return weight + scale * diff;
 }
 
-// Merge every LoRA (kohya keys lora_unet_<path with _>) into the matching "<path>.weight", in
-// place (the base weights are not kept: the DiT alone is 38 GB). Returns the merged count.
+// Merge every LoRA into the matching "<path>.weight", in place (the base weights are not kept: the DiT alone is
+// 38 GB). Keys: kohya (lora_unet_<path with _>.lora_up / lora_down / alpha) or diffusion-pipe / PEFT
+// (diffusion_model.<path>.lora_B / lora_A, alpha = rank). int8 weights are skipped (loras.py attaches those as
+// run-time LoRA). Returns the merged count.
 int64_t merge_loras(const Weights& weights, const Weights& lora, double strength) {
     int64_t count = 0;
     for (const auto& item : weights) {
         const auto& name = item.key();
-        if (name.size() > 7 && name.substr(name.size() - 7) == ".weight") {
-            auto key = "lora_unet_" + name.substr(0, name.size() - 7);
-            for (auto& c : key) if (c == '.') c = '_';
-            if (lora.contains(key + ".lora_up.weight")) {
-                auto value = item.value();
-                value.copy_(merge_lora(value, lora.at(key + ".lora_up.weight"), lora.at(key + ".lora_down.weight"),
-                                       lora.at(key + ".alpha"), strength));
-                ++count;
-            }
+        if (name.size() <= 7 || name.substr(name.size() - 7) != ".weight") continue;
+        auto value = item.value();
+        if (value.scalar_type() == at::kChar) continue;
+        const auto path = name.substr(0, name.size() - 7);
+        auto key = "lora_unet_" + path;
+        for (auto& c : key) if (c == '.') c = '_';
+        if (lora.contains(key + ".lora_up.weight")) {
+            value.copy_(merge_lora(value, lora.at(key + ".lora_up.weight"), lora.at(key + ".lora_down.weight"),
+                                   lora.at(key + ".alpha"), strength));
+        } else if (lora.contains("diffusion_model." + path + ".lora_B.weight")) {
+            const auto& down = lora.at("diffusion_model." + path + ".lora_A.weight");
+            value.copy_(merge_lora(value, lora.at("diffusion_model." + path + ".lora_B.weight"), down,
+                                   at::scalar_tensor(double(down.size(0)), down.options()), strength));
+        } else {
+            continue;
         }
+        ++count;
     }
     return count;
 }

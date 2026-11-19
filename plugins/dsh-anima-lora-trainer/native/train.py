@@ -20,8 +20,10 @@ from torch.nn import functional as F
 
 ROOT = Path(__file__).resolve().parents[3]
 if __package__:
+    from .common import clip_gradients as _clip_gradients, publish_new as _publish_new, sample_order as _sample_order
     from .dataset import DTYPE, ModelPaths, find_samples, load_reference, prepare_dataset, read_dit_checkpoint
 else:
+    from common import clip_gradients as _clip_gradients, publish_new as _publish_new, sample_order as _sample_order
     from dataset import DTYPE, ModelPaths, find_samples, load_reference, prepare_dataset, read_dit_checkpoint
 
 
@@ -111,19 +113,6 @@ def flow_inputs(latents, noise, timestep):
     return (1 - interpolation) * latents + interpolation * noise, timestep, noise - latents
 
 
-def _sample_order(size, seed):
-    generator = torch.Generator(device="cpu").manual_seed(seed)
-    while True:
-        yield from torch.randperm(size, generator=generator).tolist()
-
-
-def _clip_gradients(params):
-    gradients = [p.grad for p in params if p.grad is not None]
-    norms = torch.stack([norm.float() for norm in torch._foreach_norm(gradients, 2, dtype=torch.float32)])
-    coefficient = (1 / (torch.linalg.vector_norm(norms) + 1e-6)).clamp(max=1)
-    torch._foreach_mul_(gradients, coefficient)
-
-
 def train_reference(reference, weights, adapters, latents, contexts, steps, learning_rate, seed,
                     *, device="cuda", compile_blocks=False, noises=None, times=None, log_every=0):
     from optimi import AdamW
@@ -189,19 +178,6 @@ def train_native(weights, adapters, latents, contexts, steps, learning_rate, see
     load_extension()
     return torch.ops.anima_native.train(weights, adapters, latents, contexts, steps, learning_rate,
                                         seed, noises, times, log_every)
-
-
-def _publish_new(path, write):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as stream:
-        temp_path = Path(stream.name)
-    try:
-        write(temp_path)
-        with temp_path.open("rb") as stream:
-            os.fsync(stream.fileno())
-        os.link(temp_path, path)
-    finally:
-        temp_path.unlink(missing_ok=True)
 
 
 def save_adapter(path, adapters):

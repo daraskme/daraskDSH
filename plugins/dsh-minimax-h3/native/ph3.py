@@ -6,22 +6,22 @@ is used as it is and the size comes from width/height; a native preset, not a Co
 
 Usage: comfy-venv/bin/python ph3.py JOB_DIR   (JOB_DIR/request.json is written by the DSH plugin)
 request: prompt, seed, count, width, height (multiples of 32; 0 with pictures = the edit target's size), output_dir,
-optionally images [picture paths] and mode ("edit" or "reference"). Progress goes to JOB_DIR/status.json;
+optionally images [picture paths], mode ("edit" or "reference") and loras [{path, strength}]. Progress goes to JOB_DIR/status.json;
 images to output_dir as NNN-<seed>.png. The DiT (int8 convrot W8A8, comfy-kitchen kernels) and the sampler are
 bit-exact with ComfyUI's "P-H3-Image Text to Image (int8)" graph with the upsampler switched off; the text encoder
 differs ~1e-6 and the VAE runs its int8 weights dequantized to FP16 (docs/ph3-image-native-plan.md).
 """
 import json
-import os
 import re
 from pathlib import Path
 import sys
-import tempfile
 import time
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(HERE))
+sys.path.append(str(ROOT / "plugins/dsh-anima-lora-trainer/native"))  # job.py (after HERE: both have build.py)
+from job import run  # noqa: E402
 MODELS = ROOT / "plugins/dsh-comfyui/models"
 DIT = MODELS / "diffusion_models/p-h3-image_int8_convrot.safetensors"
 TEXT_ENCODER = MODELS / "text_encoders/p-h3-image_text_encoder_int8_convrot.safetensors"
@@ -32,17 +32,6 @@ SIGMAS = [1.0, 0.984753, 0.967905, 0.951688, 0.925372, 0.881923, 0.810083, 0.528
 BUFFERS = ("adaln_t_table", "rope.inv_freq")
 EDIT = "Edit <Picture 1>. {}"
 VERBATIM = re.compile(r"\s*(Edit <Picture \d+>|subject_definitions:)")
-
-JOB = None
-status = {"stage": "starting", "done": 0, "total": 0, "images": [], "started": time.time()}
-
-
-def update(**changes):
-    status.update(changes, updated=time.time())
-    with tempfile.NamedTemporaryFile("w", dir=JOB, delete=False, encoding="utf-8") as temporary:
-        json.dump(status, temporary, ensure_ascii=False)
-    os.replace(temporary.name, JOB / "status.json")
-
 
 def tensors(path, keep=lambda key: True):
     from safetensors import safe_open
@@ -93,7 +82,7 @@ def sample(dit, context, tags, seed, width, height, on_step=None, refs=()):
     sigmas = torch.FloatTensor(SIGMAS).cuda()
     shapes = [1, 24, 1, height // 16, width // 16], [1, 32, 2, 2]
     noise = [n.cuda() for n in sampler.initial_noise(seed, *shapes)]
-    cond_rows, positions = sampler.conditioning(context.shape[1], shapes[0], 2, refs=refs, seed=seed)
+    cond_rows, _, positions = sampler.conditioning(context.shape[1], shapes[0], 2, refs=refs, seed=seed)
     x = [sigmas[0] * n + (1.0 - sigmas[0]) * torch.zeros_like(n) for n in noise]
     for i in range(len(SIGMAS) - 1):
         sigma = sigmas[i]
@@ -113,8 +102,8 @@ def decode(vae_w, latent):
     return vae.finalize(pixels)[0, :, 0].permute(1, 2, 0)
 
 
-def main():
-    request = json.loads((JOB / "request.json").read_text())
+def main(job):
+    request, update = job.request, job.update
     count = int(request["count"])
     update(stage="loading", total=count, message="モデルを読み込んでいます")
     import numpy as np
@@ -123,6 +112,7 @@ def main():
     import torch
     from tokenizers import Tokenizer
     import build
+    import loras
     import pictures
     import vae
 
@@ -141,6 +131,8 @@ def main():
     height = height or (sizes[0][1].shape[0] if edit else pictures.PH3_SIZE)
     with torch.inference_mode():
         dit = load_dit()
+        for item in request.get("loras", []):  # BF16 refiner: merged; int8 blocks: run-time LoRA (loras.py)
+            loras.apply(dit, tensors(item["path"]), item["strength"])
         te = tensors(TEXT_ENCODER)
         context, tags, _ = condition(te, dit, tokenizer, prompt, [shown for shown, _ in sizes])
         del te
@@ -160,21 +152,15 @@ def main():
             info.add_text("parameters", json.dumps({"prompt": prompt, "seed": seed, "width": width, "height": height,
                                                     "mode": request.get("mode") if inputs else "text",
                                                     "images": [Path(p).name for p in request.get("images") or []],
-                                                    "model": "p-h3-image int8", "sampler": "euler 8 (manual sigmas)"},
+                                                    "model": "p-h3-image int8", "sampler": "euler 8 (manual sigmas)",
+                                                    "loras": [{"name": i.get("name") or Path(i["path"]).stem, "strength": i["strength"]}
+                                                              for i in request.get("loras", [])]},
                                                    ensure_ascii=False))
             path = output / f"{index + 1:03d}-{seed}.png"
             Image.fromarray(np.clip(255.0 * rgb, 0, 255).astype(np.uint8)).save(path, pnginfo=info)
-            status["images"].append({"file": path.name, "seed": seed, "seconds": round(time.time() - image_started, 2)})
-            update(done=len(status["images"]))
+            job.add_image({"file": path.name, "seed": seed, "seconds": round(time.time() - image_started, 2)})
     update(stage="done", message="完了", finished=time.time())
 
 
 if __name__ == "__main__":
-    JOB = Path(sys.argv[1]).resolve()
-    try:
-        main()
-    except Exception as error:  # reported to the panel; the traceback goes to stderr for the plugin
-        import traceback
-        traceback.print_exc()
-        update(stage="error", message=str(error), finished=time.time())
-        sys.exit(1)
+    run(main, {"done": 0, "total": 0})

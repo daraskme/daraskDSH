@@ -277,5 +277,53 @@ class HookExecution:
         return spec
 
 
+def install_guide_node():
+    """DSH_CAPTURE_GUIDE=file.safetensors: a "DSHCaptureGuide" node that appends raw latent keyframes like the long-video
+    joins (video: 1-step blocks at frame offsets; audio: one audio_latent keyframe), read from the file's
+    video.<frame index> / audio.<frame index> tensors."""
+    path = os.environ.get("DSH_CAPTURE_GUIDE")
+    if not path:
+        return
+    import nodes
+    import node_helpers
+    from safetensors.torch import load_file
+
+    class DSHCaptureGuide:
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {"required": {"positive": ("CONDITIONING",)}}
+        RETURN_TYPES = ("CONDITIONING",)
+        FUNCTION = "run"
+        CATEGORY = "dsh"
+
+        def run(self, positive):
+            data = load_file(path)
+            keyframes = list(positive[0][1].get("minimax_keyframes", []))
+            for key in sorted((k for k in data if k.startswith("video.")), key=lambda k: float(k[6:])):
+                keyframes.append({"resolved_frame_index": int(float(key[6:])), "latent": data[key]})
+            for key in (k for k in data if k.startswith("audio.")):
+                keyframes.append({"resolved_frame_index": float(key[6:]), "audio_latent": data[key]})
+            return (node_helpers.conditioning_set_values(positive, {"minimax_keyframes": keyframes}),)
+
+    nodes.NODE_CLASS_MAPPINGS["DSHCaptureGuide"] = DSHCaptureGuide
+
+
+class HookNodes:
+    def find_spec(self, name, path=None, target=None):
+        if name != "nodes":
+            return None
+        sys.meta_path.remove(self)
+        spec = importlib.util.find_spec(name)
+        load = spec.loader.exec_module
+
+        def exec_module(module):
+            load(module)
+            sys.modules["nodes"] = module
+            install_guide_node()
+        spec.loader.exec_module = exec_module
+        return spec
+
+
 sys.meta_path.insert(0, HookExecution())
+sys.meta_path.insert(0, HookNodes())
 runpy.run_path(str(COMFY / "main.py"), run_name="__main__")

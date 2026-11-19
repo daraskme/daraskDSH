@@ -7,6 +7,7 @@ window.__ModuleLoader__.load({
     const API = '/api/darask.animaLora'
     const PURPOSES = [['character','キャラ','一人の人物・キャラの見た目を覚えさせる'],
       ['style','スタイル','絵柄・画風を覚えさせる'],['concept','コンセプト','ポーズ・物・状況などの概念を覚えさせる']]
+    const MODELS = [['anima','Anima','イラスト（画像）'],['h3','MiniMax H3','動画（音声つき）・画像'],['ph3','P-H3','写真・一般の画像']]
     const STAGES = {queued:'待機中',starting:'準備中',captioning:'キャプション作成',training:'学習',loading:'モデル読み込み',
       generating:'生成中',decoding:'動画を作成',done:'完了',error:'エラー',cancelled:'中止'}
     const SIZES = [['832x1216','縦 832×1216'],['1216x832','横 1216×832'],['1024x1024','正方形 1024×1024'],
@@ -15,7 +16,7 @@ window.__ModuleLoader__.load({
     const VIDEO_SIZES = [['1280x704','横 1280×704'],['704x1280','縦 704×1280'],['960x960','正方形 960×960'],['640x384','横 640×384（試し用）']]
     const IMAGE_SIZES = [['2912x2912','正方形 2912×2912（標準）'],['3872x2176','横 3872×2176'],['2176x3872','縦 2176×3872'],
       ['2048x2048','正方形 2048×2048'],['1024x1024','正方形 1024×1024（試し用）']]
-    const LENGTHS = [[39,'1.6 秒（39 フレーム）'],[73,'3.0 秒（73 フレーム）'],[124,'5.2 秒（124 フレーム）'],[175,'7.3 秒（175 フレーム）']]
+    const LENGTHS = [[39,'1.6 秒（39 フレーム）'],[73,'3.0 秒（73 フレーム）'],[124,'5.2 秒（124 フレーム）'],[175,'7.3 秒（175 フレーム）'],[362,'15 秒（362 フレーム）'],[702,'29 秒（長尺 2 区間）'],[1042,'43 秒（長尺 3 区間）'],[1382,'58 秒（長尺 4 区間）']]
 
     async function api(body) {
       const res = await fetch(API, body ? {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)} : {})
@@ -82,12 +83,14 @@ window.__ModuleLoader__.load({
 
     function Settings({plan}) {
       const s = plan.settings, a = s.args
+      const h3 = s.model && s.model !== 'anima'
       const rows = [
-        ['画像', plan.images + ' 枚（キャプションあり ' + plan.captioned + ' 枚）'],
+        [h3 ? '素材' : '画像', plan.images + (h3 ? ' 件' : ' 枚') + '（キャプションあり ' + plan.captioned + '）'],
         ['学習量', s.epochs + ' epoch · ' + s.steps + ' step'],
-        ['解像度 / rank', s.resolution + 'px · rank ' + s.rank],
+        ['解像度 / rank', (s.model === 'h3' ? '画像 768px・動画 512px' : s.resolution + 'px') + ' · rank ' + s.rank],
         ['学習率', lr(a['learning-rate']) + (a['cross-attn-lr'] !== undefined ? '（cross-attn ' + lr(a['cross-attn-lr']) + '）' : '')],
-        ['スケジュール', 'warmup ' + Math.round(a.warmup * 100) + '% · cosine ' + a['lr-cycles'] + ' 回 · timestep ×' + a['timestep-scale']],
+        h3 ? ['スケジュール', 'warmup 10 step · 一定 · CFG 4 で蒸留を保つ']
+           : ['スケジュール', 'warmup ' + Math.round(a.warmup * 100) + '% · cosine ' + a['lr-cycles'] + ' 回 · timestep ×' + a['timestep-scale']],
         ['出力', plan.comfyName],
       ]
       return h('dl',{className:'dsh-anima-settings'},rows.flatMap(([k,v])=>[h('dt',{key:k},k),h('dd',{key:k+'v'},v)]))
@@ -138,8 +141,27 @@ window.__ModuleLoader__.load({
         (job.running || job.queued) && h(Button,{variant:'outline',size:'sm',onClick:() => cancel(job.id)},job.running ? '中止' : '取り消す'))
     }
 
+    /** LoRA rows for the generation panels; `model` picks which LoRAs are listed (anima / h3 / ph3). */
+    function LoraPicker({model, value, onChange, disabled, setError}) {
+      const [available,setAvailable] = React.useState([])
+      React.useEffect(() => { api({action:'loras',model}).then(data => setAvailable(data.loras)).catch(e => setError(e.message)) }, [model])
+      const setLora = (index, patch) => onChange(value.map((item, i) => i === index ? {...item,...patch} : item))
+      const label = {anima:'Anima',h3:'H3',ph3:'P-H3'}[model]
+      return h('fieldset',{disabled},h('legend',null,'LoRA'),
+        value.map((item, index) => h('div',{key:index,className:'dsh-anima-row'},
+          h('select',{value:item.name,'aria-label':'LoRA',onChange:e => setLora(index,{name:e.target.value})},
+            h('option',{value:''},'選択してください'),available.map(name => h('option',{key:name,value:name},name.replace(/\.safetensors$/,'')))),
+          h('input',{type:'number',step:0.05,min:-2,max:2,value:item.strength,className:'dsh-anima-narrow','aria-label':'強さ',
+            onChange:e => setLora(index,{strength:e.target.value})}),
+          h(Button,{type:'button',size:'sm',variant:'outline',onClick:() => onChange(value.filter((_, i) => i !== index))},'外す'))),
+        value.length < 4 && h(Button,{type:'button',size:'sm',variant:'outline',className:'dsh-anima-start',
+          disabled:!available.length,onClick:() => onChange([...value,{name:'',strength:1}])},
+          available.length ? 'LoRA を追加' : '使える ' + label + ' LoRA がありません'))
+    }
+    const chosen = loras => loras.filter(item => item.name).map(item => ({name:item.name,strength:Number(item.strength)}))
+
     function ImagePanel() {
-      const [form,setForm] = React.useState({prompt:'',mode:'t2i',images:[],size:'2912x2912',count:1,seed:''})
+      const [form,setForm] = React.useState({prompt:'',mode:'t2i',images:[],size:'2912x2912',count:1,seed:'',loras:[]})
       const [jobs,setJobs] = useQueue()
       const [notice,setNotice] = React.useState('')
       const [error,setError] = React.useState('')
@@ -151,7 +173,7 @@ window.__ModuleLoader__.load({
         try {
           const [width, height] = form.size === 'auto' ? [0, 0] : form.size.split('x').map(Number)
           const data = await api({action:'image',mode:form.mode,images:form.mode === 't2i' ? [] : form.images,prompt:form.prompt,
-            width,height,count:Number(form.count),seed:form.seed === '' ? null : Number(form.seed)})
+            width,height,count:Number(form.count),seed:form.seed === '' ? null : Number(form.seed),loras:chosen(form.loras)})
           setJobs(data.jobs)
           setNotice('キューに追加しました')
         } catch (e) { setError(e.message) }
@@ -182,6 +204,7 @@ window.__ModuleLoader__.load({
                   .map(([value,label]) => h('option',{key:value,value},label)))),
               h('label',null,h('span',null,'枚数'),h('input',{type:'number',min:1,max:16,value:form.count,disabled:busy,onChange:e => set({count:e.target.value})})),
               h('label',null,h('span',null,'シード'),h('input',{type:'number',min:0,value:form.seed,placeholder:'ランダム',disabled:busy,onChange:e => set({seed:e.target.value})}))),
+            h(LoraPicker,{model:'ph3',value:form.loras,onChange:loras => set({loras}),disabled:busy,setError}),
             h('div',{className:'dsh-anima-actions'},
               h(Button,{type:'submit',variant:'primary',disabled:busy || !form.prompt.trim() || (form.mode !== 't2i' && !form.images.length)},
                 active ? 'キューに追加（実行中・待機中 ' + active + ' 件）' : '生成')),
@@ -192,7 +215,7 @@ window.__ModuleLoader__.load({
     }
 
     function VideoPanel() {
-      const [form,setForm] = React.useState({prompt:'',mode:'t2v',first:[],last:[],references:[],size:'1280x704',length:124,seed:''})
+      const [form,setForm] = React.useState({prompt:'',mode:'t2v',first:[],last:[],references:[],size:'1280x704',length:124,seed:'',loras:[]})
       const [jobs,setJobs] = useQueue()
       const [notice,setNotice] = React.useState('')
       const [error,setError] = React.useState('')
@@ -206,7 +229,7 @@ window.__ModuleLoader__.load({
           const pictures = form.mode === 'i2v' ? {first:form.first[0] || null,last:form.last[0] || null}
             : form.mode === 'ref' ? {references:form.references} : {}
           const data = await api({action:'video',mode:form.mode,...pictures,prompt:form.prompt,width,height,length:Number(form.length),
-            seed:form.seed === '' ? null : Number(form.seed)})
+            seed:form.seed === '' ? null : Number(form.seed),loras:chosen(form.loras)})
           setJobs(data.jobs)
           setNotice('キューに追加しました')
         } catch (e) { setError(e.message) }
@@ -235,6 +258,7 @@ window.__ModuleLoader__.load({
               h('label',null,h('span',null,'長さ'),h('select',{value:form.length,disabled:busy,onChange:e => set({length:e.target.value})},
                 LENGTHS.map(([value,label]) => h('option',{key:value,value},label)))),
               h('label',null,h('span',null,'シード'),h('input',{type:'number',min:0,value:form.seed,placeholder:'ランダム',disabled:busy,onChange:e => set({seed:e.target.value})}))),
+            h(LoraPicker,{model:'h3',value:form.loras,onChange:loras => set({loras}),disabled:busy,setError}),
             h('div',{className:'dsh-anima-actions'},
               h(Button,{type:'submit',variant:'primary',disabled:busy || !form.prompt.trim() ||
                 (form.mode === 'i2v' && !form.first.length && !form.last.length) || (form.mode === 'ref' && !form.references.length)},
@@ -351,14 +375,11 @@ window.__ModuleLoader__.load({
 
     function GeneratePanel() {
       const [form,setForm] = React.useState({prompt:'',negative:'',size:'832x1216',steps:34,cfg:4.5,seed:'',count:1,loras:[],exact:false})
-      const [available,setAvailable] = React.useState([])
       const [jobs,setJobs] = useQueue()
       const [notice,setNotice] = React.useState('')
       const [error,setError] = React.useState('')
       const [busy,setBusy] = React.useState(false)
       const set = patch => setForm(previous => ({...previous,...patch}))
-      React.useEffect(() => { api({action:'loras'}).then(data => setAvailable(data.loras)).catch(e => setError(e.message)) }, [])
-      const setLora = (index, patch) => set({loras:form.loras.map((item, i) => i === index ? {...item,...patch} : item)})
 
       async function submit(e) {
         e.preventDefault()
@@ -367,7 +388,7 @@ window.__ModuleLoader__.load({
           const [width, height] = form.size.split('x').map(Number)
           const data = await api({action:'generate',prompt:form.prompt,negative:form.negative,width,height,steps:Number(form.steps),
             cfg:Number(form.cfg),count:Number(form.count),seed:form.seed === '' ? null : Number(form.seed),
-            loras:form.loras.filter(item => item.name).map(item => ({name:item.name,strength:Number(item.strength)})),fp8:!form.exact})
+            loras:chosen(form.loras),fp8:!form.exact})
           setJobs(data.jobs)
           setNotice('キューに追加しました')
         } catch (e) { setError(e.message) }
@@ -383,16 +404,7 @@ window.__ModuleLoader__.load({
                 onChange:e => set({prompt:e.target.value}),onKeyDown:e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.form.requestSubmit() }})),
             h('label',null,h('span',null,'ネガティブプロンプト'),
               h('textarea',{value:form.negative,rows:2,disabled:busy,placeholder:'空欄可',onChange:e => set({negative:e.target.value})})),
-            h('fieldset',{disabled:busy},h('legend',null,'LoRA'),
-              form.loras.map((item, index) => h('div',{key:index,className:'dsh-anima-row'},
-                h('select',{value:item.name,'aria-label':'LoRA',onChange:e => setLora(index,{name:e.target.value})},
-                  h('option',{value:''},'選択してください'),available.map(name => h('option',{key:name,value:name},name.replace(/\.safetensors$/,'')))),
-                h('input',{type:'number',step:0.05,min:-2,max:2,value:item.strength,className:'dsh-anima-narrow','aria-label':'強さ',
-                  onChange:e => setLora(index,{strength:e.target.value})}),
-                h(Button,{type:'button',size:'sm',variant:'outline',onClick:() => set({loras:form.loras.filter((_, i) => i !== index)})},'外す'))),
-              form.loras.length < 4 && h(Button,{type:'button',size:'sm',variant:'outline',className:'dsh-anima-start',
-                disabled:!available.length,onClick:() => set({loras:[...form.loras,{name:'',strength:1}]})},
-                available.length ? 'LoRA を追加' : '使える Anima LoRA がありません')),
+            h(LoraPicker,{model:'anima',value:form.loras,onChange:loras => set({loras}),disabled:busy,setError}),
             h('div',{className:'dsh-anima-grid'},
               h('label',null,h('span',null,'サイズ'),h('select',{value:form.size,disabled:busy,onChange:e => set({size:e.target.value})},
                 SIZES.map(([value,label]) => h('option',{key:value,value},label)))),
@@ -413,7 +425,7 @@ window.__ModuleLoader__.load({
     }
 
     function Panel() {
-      const [form,setForm] = React.useState({folder:'',purpose:'style',trigger:'',name:'',overwrite:true})
+      const [form,setForm] = React.useState({model:'anima',folder:'',purpose:'style',trigger:'',name:'',overwrite:true})
       const [plan,setPlan] = React.useState(null)
       const [jobs,setJobs] = useQueue()
       const [notice,setNotice] = React.useState('')
@@ -435,10 +447,15 @@ window.__ModuleLoader__.load({
 
       const disabled = busy
       return h('section',{className:'dsh-anima-panel'},
-        h('header',{className:'dsh-anima-head'},h('h1',null,h(Icon),'Anima LoRA 学習')),
+        h('header',{className:'dsh-anima-head'},h('h1',null,h(Icon),'LoRA 学習')),
         h('div',{className:'dsh-anima-body'},
           h('form',{className:'dsh-anima-card',onSubmit:e => { e.preventDefault(); run('plan') }},
-            h('label',null,h('span',null,'画像フォルダ'),
+            h('fieldset',{disabled},h('legend',null,'モデル'),
+              h('div',{className:'dsh-anima-purposes'},MODELS.map(([key,label,hint]) =>
+                h('label',{key,className:form.model === key ? 'is-selected' : ''},
+                  h('input',{type:'radio',name:'model',value:key,checked:form.model === key,onChange:() => set({model:key})}),
+                  h('strong',null,label),h('small',null,hint))))),
+            h('label',null,h('span',null,form.model === 'h3' ? '画像・動画フォルダ（動画は先頭の最大 136 フレームと音声）' : '画像フォルダ'),
               h('div',{className:'dsh-anima-row'},
                 h('input',{value:form.folder,placeholder:'/path/to/images',disabled,required:true,onChange:e => set({folder:e.target.value})}),
                 h(Button,{type:'button',variant:'outline',disabled,className:'dsh-anima-nowrap',icon:h(IconFolderOpenRegular,{size:15}),onClick:() => setPicking(!picking)},'選択…')),
@@ -566,7 +583,7 @@ window.__ModuleLoader__.load({
       ctx.effect(() => () => style.remove(), 'Anima LoRA panel styles')
       ctx.slots.inject('main', () => ctx.slots.register({name:'main',key:'anima-lora'}, Panel))
       ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-        name:'sidebar.panellist',id:'anima-lora',order:21,label:() => 'Anima LoRA'
+        name:'sidebar.panellist',id:'anima-lora',order:21,label:() => 'LoRA 学習'
       }, Icon))
       ctx.slots.inject('main', () => ctx.slots.register({name:'main',key:'anima-generate'}, GeneratePanel))
       ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({

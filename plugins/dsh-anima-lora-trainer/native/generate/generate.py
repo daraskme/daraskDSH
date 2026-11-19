@@ -9,33 +9,22 @@ fp8 (default) runs the DiT projections as FP8 GEMMs: ~1.4x faster, same composit
 """
 from concurrent.futures import ThreadPoolExecutor
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import time
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 sys.path.insert(0, str(HERE))
+sys.path.append(str(HERE.parent))  # job.py (after HERE)
+from job import run  # noqa: E402
 MODELS = ROOT / "plugins/dsh-comfyui/models"
 FRONTEND = ROOT / ".runtime/anima-native/frontend"
 KITCHEN_BUILD = ROOT / ".runtime/h3-native/build"  # libdsh_kitchen.so (vendored comfy-kitchen kernels)
 BUILD = ROOT / ".runtime/anima-native/generate-build"
 NVCC = ROOT / ".runtime/h3-native/toolchain/nvidia/cu13/bin/nvcc"  # CUDA 13.2 (12.8 cannot parse GCC 15 headers)
 MAX_T5_TOKENS = 512
-
-JOB = None
-status = {"stage": "starting", "done": 0, "total": 0, "images": [], "started": time.time()}
-
-
-def update(**changes):
-    status.update(changes, updated=time.time())
-    with tempfile.NamedTemporaryFile("w", dir=JOB, delete=False, encoding="utf-8") as temporary:
-        json.dump(status, temporary, ensure_ascii=False)
-    os.replace(temporary.name, JOB / "status.json")
-
 
 def build():
     """Compile fp8.cu (nvcc, sm_120a) and the C++ ops (torch cpp_extension) once; registers torch.ops.dsh_anima_gen."""
@@ -59,8 +48,8 @@ def build():
                                       f"-L{Path(torch.__file__).parent / 'lib'}", "-lc10_cuda"])
 
 
-def main():
-    request = json.loads((JOB / "request.json").read_text())
+def main(job):
+    request, update = job.request, job.update
     count = int(request["count"])
     update(stage="loading", total=count, message="モデルを読み込んでいます")
     import numpy as np
@@ -103,8 +92,7 @@ def main():
 
     def save(image, info, path, record):
         Image.fromarray(np.clip(255.0 * image, 0, 255).astype(np.uint8)).save(path, pnginfo=info)
-        status["images"].append(record)
-        update(done=len(status["images"]))
+        job.add_image(record)
 
     with torch.inference_mode():
         cond, uncond = condition(request["prompt"], "プロンプト"), condition(request.get("negative", ""), "ネガティブ")
@@ -134,11 +122,4 @@ def main():
 
 
 if __name__ == "__main__":
-    JOB = Path(sys.argv[1]).resolve()
-    try:
-        main()
-    except Exception as error:  # reported to the panel; the traceback goes to stderr for jobs.mjs
-        import traceback
-        traceback.print_exc()
-        update(stage="error", message=str(error), finished=time.time())
-        sys.exit(1)
+    run(main, {"done": 0, "total": 0})

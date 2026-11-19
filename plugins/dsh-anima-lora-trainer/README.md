@@ -12,9 +12,13 @@ Anima Base v1.0 の LoRA を C++/LibTorch + CUDA（前処理は Rust）でネイ
 
 計画: [docs/anima-native-plan-v2.md](../../docs/anima-native-plan-v2.md)、生成は [docs/anima-generate-native-plan.md](../../docs/anima-generate-native-plan.md)
 
+## LoRA 学習パネル
+
+左サイドバーの「LoRA 学習」で、Anima・MiniMax H3・P-H3 の LoRA を作る（Gemma でキャプション → ネイティブ学習）。H3 / P-H3 は `plugins/dsh-minimax-h3/native/train_lora.py`（diffusion-pipe と同じ学習式、[docs/h3-lora-native-plan.md](../../docs/h3-lora-native-plan.md)）。H3 は動画（音声つき）も素材にできる。学習した LoRA は各生成パネルとチャットのツールで選べる。
+
 ## H3 動画パネル
 
-左サイドバーの「H3 動画」から、MiniMax H3（Eros beta7 + VBVR Pro V2）の音声つき動画を作る。実行系は `plugins/dsh-minimax-h3/native/generate.py`（ComfyUI のコードを使わないネイティブ実装、[docs/h3-native-plan.md](../../docs/h3-native-plan.md)）。ジョブは学習・Anima 生成と同じキューに入る。
+左サイドバーの「H3 動画」から、MiniMax H3（Eros beta7 + VBVR Pro V2）の音声つき動画を作る。実行系は `plugins/dsh-minimax-h3/native/generate.py`（ComfyUI のコードを使わないネイティブ実装、[docs/h3-native-plan.md](../../docs/h3-native-plan.md)）。ジョブは学習・Anima 生成と同じキューに入る。長さは最大 60 秒（1440 フレーム）で、362 フレームを超えると約 15 秒ずつの区間を繋いで作る（[docs/h3-long-video-native-plan.md](../../docs/h3-long-video-native-plan.md)）。
 
 ## P-H3 画像パネル
 

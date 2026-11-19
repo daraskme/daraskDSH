@@ -85,8 +85,22 @@ def start_llama(vision, log_dir, parallel=PARALLEL, extra=()):
     raise RuntimeError("Gemma の起動がタイムアウトしました。")
 
 
+VIDEOS = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
+
+
+def video_frame(path):
+    """The middle frame of a video (H3 training clips are captioned from one still)."""
+    import av
+    with av.open(str(path)) as container:
+        middle = (container.streams.video[0].frames or 1) // 2
+        for index, frame in enumerate(container.decode(video=0)):
+            if index >= middle:
+                return frame.to_image()
+    return frame.to_image()
+
+
 def image_data_url(path):
-    with Image.open(path) as image:
+    with (video_frame(path) if Path(path).suffix.lower() in VIDEOS else Image.open(path)) as image:
         image = ImageOps.exif_transpose(image)
         image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
         data = BytesIO()
@@ -169,15 +183,23 @@ def caption_folder():
 
 def train():
     metrics = JOB / "metrics.json"
-    command = [str(ROOT / "dsh"), "anima", "train", "--folder", REQUEST["folder"], "--output", REQUEST["output"],
-               "--metrics", str(metrics), "--summary-only", "--log-every", "5",
-               "--cache-dir", str(ROOT / ".runtime/anima-native/cache")]
+    model = REQUEST.get("model", "anima")
+    env = None
+    if model == "anima":
+        command = [str(ROOT / "dsh"), "anima", "train", "--folder", REQUEST["folder"], "--output", REQUEST["output"],
+                   "--metrics", str(metrics), "--summary-only", "--log-every", "5",
+                   "--cache-dir", str(ROOT / ".runtime/anima-native/cache")]
+    else:  # MiniMax H3 / P-H3: plugins/dsh-minimax-h3/native/train_lora.py in ComfyUI's venv (ninja from this venv)
+        command = [str(ROOT / ".runtime/comfy-venv/bin/python"), str(ROOT / "plugins/dsh-minimax-h3/native/train_lora.py"),
+                   "--model", model, "--folder", REQUEST["folder"], "--output", REQUEST["output"],
+                   "--metrics", str(metrics), "--summary-only", "--log-every", "1"]
+        env = {**os.environ, "PATH": str(Path(sys.executable).parent) + ":" + os.environ.get("PATH", "")}
     for flag, value in REQUEST["train_args"].items():
         command += [f"--{flag}", str(value)]
-    update(stage="training", done=0, total=REQUEST["steps"], message="学習を準備中（画像の変換）")
+    update(stage="training", done=0, total=REQUEST["steps"], message="学習を準備中（素材の変換）")
     with (JOB / "train.log").open("a", encoding="utf-8") as log:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                   encoding="utf-8", errors="replace")
+                                   encoding="utf-8", errors="replace", env=env)
         for line in process.stdout:
             log.write(line)
             log.flush()

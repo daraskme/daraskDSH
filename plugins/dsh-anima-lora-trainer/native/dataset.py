@@ -9,14 +9,17 @@ from pathlib import Path
 import sys
 from tempfile import NamedTemporaryFile
 
-from PIL import Image, ImageOps
+from PIL import Image
 from safetensors import SafetensorError, safe_open
 from safetensors.torch import load_file, save_file
 import torch
 
+if __package__:
+    from .common import AR_BUCKETS, IMAGE_EXTENSIONS, Sample, bucket_size, find_samples, fit_rgb  # noqa: F401
+else:
+    from common import AR_BUCKETS, IMAGE_EXTENSIONS, Sample, bucket_size, find_samples, fit_rgb  # noqa: F401
 
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
-AR_BUCKETS = tuple(2 ** (i / 4) for i in range(-4, 5))
+
 CONTEXT_SHAPE = (1, 512, 1024)
 DTYPE = torch.bfloat16
 
@@ -29,50 +32,13 @@ class ModelPaths:
     text_encoder: Path
 
 
-@dataclass(frozen=True)
-class Sample:
-    image: Path
-    caption: str
-
-
-def find_samples(folder, recursive=False):
-    folder = Path(folder)
-    if not folder.is_dir():
-        raise ValueError(f"Image folder does not exist: {folder}")
-    paths = folder.rglob("*") if recursive else folder.iterdir()
-    images = sorted(path for path in paths if path.suffix.lower() in IMAGE_EXTENSIONS and path.is_file())
-    if not images:
-        raise ValueError(f"No supported images in {folder}")
-    samples = []
-    for image in images:
-        sidecar = image.with_suffix(".txt")
-        caption = sidecar.read_text(encoding="utf-8-sig").strip() if sidecar.is_file() else ""
-        if not caption:
-            raise ValueError(f"Image requires a nonempty UTF-8 caption: {sidecar}")
-        samples.append(Sample(image, caption))
-    return samples
-
-
-def bucket_size(width, height, resolution):
-    log_aspect = math.log(width / height)
-    aspect = min(AR_BUCKETS, key=lambda ratio: abs(log_aspect - math.log(ratio)))
-    scale = math.sqrt(aspect)
-    return round(resolution * scale / 16) * 16, round(resolution / scale / 16) * 16
 
 
 def read_image(path, resolution):
     from torchvision.transforms.functional import to_tensor
 
     with Image.open(path) as source:
-        size = bucket_size(*source.size, resolution)
-        image = source
-        if image.mode == "RGBA" or "transparency" in image.info:
-            image = image.convert("RGBA")
-            white = Image.new("RGBA", image.size, (255, 255, 255, 255))
-            white.alpha_composite(image)
-            image = white
-        image = ImageOps.fit(image.convert("RGB"), size)
-        return to_tensor(image)[None, :, None, :, :]
+        return to_tensor(fit_rgb(source, bucket_size(*source.size, resolution)))[None, :, None, :, :]
 
 
 def load_reference(diffusion_pipe):

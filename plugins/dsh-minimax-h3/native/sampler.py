@@ -80,15 +80,18 @@ def patchify(z):
     return z.reshape(1, c, t, 1, h // 2, 2, w // 2, 2).permute(0, 2, 4, 6, 1, 3, 5, 7).reshape(-1, c * 4)
 
 
-def conditioning(text_len, video_shape, audio_t, keyframes=(), refs=(), seed=0):
+def conditioning(text_len, video_shape, audio_t, keyframes=(), refs=(), seed=0, audio_keyframes=()):
     """Condition rows and packed positions for dit_forward.
 
     keyframes: [(pixel frame index, normalized latent [1, 24, T, h, w])] on the target grid (I2V first / last frame);
-    refs: normalized latents [1, 24, 1, h, w] (reference pictures, p-h3-image edit inputs).
-    -> (cond_rows FP32 [N, 96] or None, positions [S, 3] float64 or None). Every condition restarts the seed's CPU
+    refs: normalized latents [1, 24, 1, h, w] (reference pictures, p-h3-image edit inputs);
+    audio_keyframes: [(pixel frame index, audio latent [1, 32, 2, rt])] (long-video joins), packed raw after the video
+    condition rows (AUDIO_COND_TIMESTEP 1.0: no noise).
+    -> (cond_rows FP32 [N, 96] or None, cond_audio_rows FP32 [M, 32] or None, positions [S, 3] float64 or None);
+    the audio rows go after the keyframes' video rows (dit_forward cond_audio_at). Every condition restarts the seed's CPU
     noise stream: rows = 0.999 * rows + 0.001 * noise."""
-    if not keyframes and not refs:
-        return None, None
+    if not keyframes and not refs and not audio_keyframes:
+        return None, None, None
     _, _, latent_t, lat_h, lat_w = video_shape
     frame, w_grid = _frame_grid(lat_h, lat_w)
     text = torch.zeros(text_len, 3, dtype=torch.float64)
@@ -97,6 +100,8 @@ def conditioning(text_len, video_shape, audio_t, keyframes=(), refs=(), seed=0):
     cursor = float(text_len) + len(refs)  # references take one time step each ahead of the targets
     for index, z in keyframes:
         pos.append(_video_grid(z.shape[2], frame, cursor + FRAME_RESCALE * index))
+    for index, z in audio_keyframes:  # PackedLayout: keyframes (video, then audio), then references
+        pos.append(_audio_grid(cursor + FRAME_RESCALE * index, z.shape[-1], float(w_grid[0]), float(w_grid[-1])))
     for i, z in enumerate(refs):
         r_frame, _ = _frame_grid(z.shape[3], z.shape[4])
         g = torch.empty(r_frame.shape[0], 3, dtype=torch.float64)
@@ -110,24 +115,27 @@ def conditioning(text_len, video_shape, audio_t, keyframes=(), refs=(), seed=0):
         r = patchify(z.to(torch.float32))
         noise = torch.randn(r.shape, generator=torch.Generator("cpu").manual_seed(int(seed)), dtype=torch.float32)
         rows.append(VISUAL_COND_T * r + (1.0 - VISUAL_COND_T) * noise.to(r.device))
-    return torch.cat(rows).cuda(), torch.cat(pos)
+    audio_rows = [z[0].to(torch.float32).permute(1, 2, 0).reshape(-1, z.shape[1]) for _, z in audio_keyframes]
+    return (torch.cat(rows).cuda() if rows else None, torch.cat(audio_rows).cuda() if audio_rows else None, torch.cat(pos))
 
 
 def sample(weights, context, token_tags, seed, width, height, length, steps=8, shift_video=10.0, shift_audio=3.0,
-           sparse=True, on_step=None, keyframes=(), refs=()):
+           sparse=True, on_step=None, keyframes=(), refs=(), audio_keyframes=()):
     """Returns the KSampler latent [video, audio] (FP32, audio back on its own scale)."""
     audio_scale = shift_video / shift_audio
     sigmas = simple_sigmas(steps, shift_video).cuda()
     shapes = latent_shapes(width, height, length)
     noise = [n.cuda() for n in initial_noise(seed, *shapes)]
-    cond_rows, positions = conditioning(context.shape[1], shapes[0], shapes[1][-1], keyframes, refs, seed)
+    n_key = sum(z.shape[2] for _, z in keyframes) * (shapes[0][3] // 2) * (shapes[0][4] // 2)
+    cond_rows, cond_audio_rows, positions = conditioning(context.shape[1], shapes[0], shapes[1][-1], keyframes, refs, seed,
+                                                         audio_keyframes)
     x = [sigmas[0] * n + (1.0 - sigmas[0]) * torch.zeros_like(n) for n in noise]
     stats = [torch.zeros(56, 128, device="cuda") for _ in range(100)] if sparse else []
 
     def denoise(x, sigma, first):
         out = torch.ops.dsh_h3.dit_forward(weights, x[0].to(torch.bfloat16), x[1].to(torch.bfloat16), sigma.view(1) * 1000,
                                            context, token_tags, shift_video, shift_audio, audio_scale, stats, first,
-                                           cond_rows, positions)
+                                           cond_rows, positions, cond_audio_rows, n_key)
         return [xi - o.float() * sigma for xi, o in zip(x, out)]
 
     old_sigma_down = old_denoised = None

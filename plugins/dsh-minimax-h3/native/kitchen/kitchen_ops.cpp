@@ -39,6 +39,9 @@ void launch_quantize_int8_rowwise_convrot64_kernel(const void* input, void* outp
                                                    int64_t num_cols, int group_size, int input_dtype_code, bool stochastic,
                                                    int act_code, uint64_t seed, const void* act_weight, float act_eps,
                                                    cudaStream_t stream);
+void launch_dequantize_int8_convrot_kernel(const void* input, const void* scales, void* output, int64_t num_rows,
+                                           int64_t num_cols, int64_t scale_size, int group_size, int output_dtype_code,
+                                           cudaStream_t stream);
 bool launch_cutlass_int8_dequant(const void* A, const void* B, const void* xs, const void* ws, const void* bias, void* D,
                                  int64_t M, int64_t N, int64_t K, int out_dtype_code, cudaStream_t stream);
 }
@@ -157,6 +160,18 @@ at::Tensor int8_linear(const at::Tensor& x, const at::Tensor& weight, const at::
     return out.view(sizes);
 }
 
+// The BF16 weight an int8 convrot weight stands for (per-row scale, inverse Hadamard rotation): x @ W^T equals
+// int8_linear up to the activation quantization. LoRA training uses it for the input gradient.
+at::Tensor dequantize_int8_convrot(const at::Tensor& weight, const at::Tensor& weight_scale) {
+    TORCH_CHECK(weight.scalar_type() == at::kChar && weight.dim() == 2 && weight.is_contiguous(),
+                "dsh_kitchen.dequantize_int8_convrot: weight must be contiguous int8 [N, K]");
+    auto ws = weight_scale.to(at::kFloat).reshape(-1).contiguous();
+    auto out = at::empty(weight.sizes(), weight.options().dtype(at::kBFloat16));
+    launch_dequantize_int8_convrot_kernel(weight.const_data_ptr(), ws.const_data_ptr(), out.data_ptr(), weight.size(0),
+                                          weight.size(1), ws.numel(), 256, dtype_code(out), stream_of(weight));
+    return out;
+}
+
 }  // namespace dsh_kitchen
 
 using namespace dsh_kitchen;
@@ -169,6 +184,7 @@ at::Tensor apply_rope_split_half1_op(const at::Tensor& x, const at::Tensor& freq
 
 TORCH_LIBRARY(dsh_kitchen, m) {
     m.def("int8_linear(Tensor x, Tensor weight, Tensor weight_scale, Tensor? bias, int act) -> Tensor", &int8_linear);
+    m.def("dequantize_int8_convrot(Tensor weight, Tensor weight_scale) -> Tensor", &dequantize_int8_convrot);
     m.def("apply_rope_split_half1(Tensor x, Tensor freqs) -> Tensor", &apply_rope_split_half1_op);
     m.def("rms_rope_split_half_(Tensor(a!) q, Tensor(b!) k, Tensor freqs, Tensor q_scale, Tensor k_scale, float epsilon, "
           "int rot_dim) -> ()", &rms_rope_split_half_);

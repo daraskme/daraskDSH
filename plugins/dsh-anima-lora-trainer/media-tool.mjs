@@ -63,6 +63,18 @@ async function finish(ctx, exec, id, root) {
 }
 
 const output = {schema:{type:'string'}, render:(_, value) => [{type:'text', text:value}]}
+const LORAS = {type:'array', description:'[{name, strength}] LoRAs of that model, names relative to models/loras (an unknown name lists the usable ones)',
+  items:{type:'object', properties:{name:{type:'string', required:true}, strength:{type:'number'}}, additionalProperties:false}}
+
+/** enqueue(), adding the usable LoRA names to a LoRA error. */
+async function withLoras(model, enqueue) {
+  try {
+    return await enqueue()
+  } catch (error) {
+    if (!/LoRA/.test(error.message)) throw error
+    throw Error(error.message + '（使える LoRA: ' + ((await listLoraNames(model)).join(', ') || 'なし') + '）')
+  }
+}
 
 export function registerMediaTools(ctx) {
   ctx.tools.register(defineTool({
@@ -81,8 +93,7 @@ export function registerMediaTools(ctx) {
       size:{type:'string', description:'WIDTHxHEIGHT; Anima default 832x1216 (multiples of 16, up to 2048), P-H3 default 2912x2912 (multiples of 32)'},
       count:{type:'integer'}, seed:{type:'integer'},
       negative:{type:'string'}, steps:{type:'integer'}, cfg:{type:'number'},
-      loras:{type:'array', description:'Anima only: [{name, strength}] with names relative to models/loras',
-        items:{type:'object', properties:{name:{type:'string', required:true}, strength:{type:'number'}}, additionalProperties:false}},
+      loras:LORAS,
     },
     output, timeoutMs:TIMEOUT_MS + 60000, isConcurrencySafe:() => true,
     execute:async (args, exec) => {
@@ -91,19 +102,15 @@ export function registerMediaTools(ctx) {
       if (args.model === 'anima') {
         if (args.images?.length) throw Error('Anima は画像入力に対応していません。編集・参照は model "p-h3" を使ってください')
         const [width, height] = size(args.size, [832, 1216])
-        try {
-          ({id} = await enqueueGenerate({prompt:args.prompt, negative:args.negative ?? '', width, height, steps:args.steps ?? 34,
-            cfg:args.cfg ?? 4.5, count:args.count ?? 1, seed:args.seed, loras:args.loras ?? [], fp8:true}))
-        } catch (error) {
-          if (!/LoRA/.test(error.message)) throw error
-          throw Error(error.message + '（使える LoRA: ' + ((await listLoraNames()).join(', ') || 'なし') + '）')
-        }
+        ;({id} = await withLoras('anima', () => enqueueGenerate({prompt:args.prompt, negative:args.negative ?? '', width, height,
+          steps:args.steps ?? 34, cfg:args.cfg ?? 4.5, count:args.count ?? 1, seed:args.seed, loras:args.loras ?? [], fp8:true})))
       } else {
         const images = []
         for (const path of args.images ?? []) images.push(await picture(root, path))
         const mode = images.length ? (args.mode === 'reference' ? 'reference' : 'edit') : 't2i'
         const [width, height] = size(args.size, mode === 'edit' ? [0, 0] : [2912, 2912])
-        ;({id} = await enqueueImage({prompt:args.prompt, mode, images, width, height, count:args.count ?? 1, seed:args.seed}))
+        ;({id} = await withLoras('ph3', () => enqueueImage({prompt:args.prompt, mode, images, width, height, count:args.count ?? 1,
+          seed:args.seed, loras:args.loras ?? []})))
       }
       return JSON.stringify(await finish(ctx, exec, id, root))
     },
@@ -114,20 +121,21 @@ export function registerMediaTools(ctx) {
     description:'Use this (not ComfyUI) for any video generation request, including image to video. Generate a video with sound (MiniMax H3, MP4 at 24 fps) on the local GPU and save it into the chat workspace ' +
       '(generated/<job>/). Describe both picture and sound in English. Without pictures it is text to video; first_frame and/or ' +
       'last_frame (workspace image paths) anchor the start/end frame (image to video); references (1-9 workspace image paths) ' +
-      'are subjects the prompt names as <Picture 1>, <Picture 2>... Default 1280x704, 124 frames (~5 s); takes about a minute.',
+      'are subjects the prompt names as <Picture 1>, <Picture 2>... Default 1280x704, 124 frames (~5 s, about 1.5 min). Up to 1440 frames (60 s): over 362 frames it is made in ~15 s segments that continue each other (about 2.5 min per segment).',
     parameters:{
       prompt:{type:'string', required:true},
       first_frame:{type:'string'}, last_frame:{type:'string'},
       references:{type:'array', items:{type:'string'}},
       size:{type:'string', description:'WIDTHxHEIGHT, multiples of 32, at most 1344x768 in area (e.g. 1280x704, 704x1280, 960x960)'},
-      length:{type:'integer', description:'frames at 24 fps (5-362), snapped up to 17k+5'},
+      length:{type:'integer', description:'frames at 24 fps (5-1440), snapped up to 17k+5; most efficient long lengths: 702, 1042, 1382'},
       seed:{type:'integer'},
+      loras:LORAS,
     },
     output, timeoutMs:TIMEOUT_MS + 60000, isConcurrencySafe:() => true,
     execute:async (args, exec) => {
       const root = await workspace(ctx, exec)
       const [width, height] = size(args.size, [1280, 704])
-      const body = {prompt:args.prompt, width, height, length:args.length ?? 124, seed:args.seed, mode:'t2v'}
+      const body = {prompt:args.prompt, width, height, length:args.length ?? 124, seed:args.seed, mode:'t2v', loras:args.loras ?? []}
       if (args.references?.length) {
         if (args.first_frame || args.last_frame) throw Error('references と first_frame / last_frame は同時に使えません')
         body.mode = 'ref'
@@ -138,7 +146,7 @@ export function registerMediaTools(ctx) {
         if (args.first_frame) body.first = await picture(root, args.first_frame)
         if (args.last_frame) body.last = await picture(root, args.last_frame)
       }
-      const {id} = await enqueueVideo(body)
+      const {id} = await withLoras('h3', () => enqueueVideo(body))
       return JSON.stringify(await finish(ctx, exec, id, root))
     },
   }))

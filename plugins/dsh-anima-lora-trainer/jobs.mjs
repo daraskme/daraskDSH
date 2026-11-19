@@ -9,7 +9,7 @@ import {mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile} f
 import {homedir} from 'node:os'
 import {basename, dirname, extname, isAbsolute, join, relative, sep} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {CAPTION_INSTRUCTIONS, PURPOSES, recommend} from './presets.mjs'
+import {CAPTION_INSTRUCTIONS, MODELS, PURPOSES, recommend} from './presets.mjs'
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const PIPELINE = fileURLToPath(new URL('./pipeline.py', import.meta.url))
@@ -26,6 +26,7 @@ const H3_LORA = {name:'H3_VBVR_Pro-V2', path:join(ROOT, 'plugins/dsh-comfyui/lor
 const H3_GENERATED = join(ROOT, '.runtime/h3-native/generated')
 const PH3 = join(ROOT, 'plugins/dsh-minimax-h3/native/ph3.py')
 const IMAGES = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tif', '.tiff'])
+const VIDEOS = new Set(['.mp4', '.mov', '.webm', '.mkv', '.avi'])
 // Pictures sent from the browser (local or remote) or a chat tool: keyframes, references, edit inputs.
 const UPLOADS = join(ROOT, '.runtime/anima-native/uploads')
 // Training folders built from uploaded images and captions (remote LoRA training).
@@ -90,19 +91,21 @@ async function pruneUploads() {
 }
 
 
-async function scan(folder) {
+async function scan(folder, model = 'anima') {
   if (typeof folder !== 'string' || !isAbsolute(folder.trim())) throw Error('フォルダを絶対パスで指定してください')
   const root = await realpath(folder.trim())
   if (!(await stat(root)).isDirectory()) throw Error('フォルダを指定してください')
   const images = [], captioned = []
+  const videos = MODELS[model]?.videos
   for (const entry of (await readdir(root, {withFileTypes:true})).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isFile() || !IMAGES.has(extname(entry.name).toLowerCase())) continue
+    const ext = extname(entry.name).toLowerCase()
+    if (!entry.isFile() || !(IMAGES.has(ext) || videos && VIDEOS.has(ext))) continue
     const path = join(root, entry.name)
     images.push(path)
     const caption = path.slice(0, -extname(path).length) + '.txt'
     if (existsSync(caption) && (await readFile(caption, 'utf8')).trim()) captioned.push(path)
   }
-  if (!images.length) throw Error('フォルダに画像（png・jpg・webp など）がありません')
+  if (!images.length) throw Error(videos ? 'フォルダに画像・動画がありません' : 'フォルダに画像（png・jpg・webp など）がありません')
   return {root, images, captioned:captioned.length}
 }
 
@@ -120,10 +123,11 @@ function outputName(name, trigger, root, purpose) {
 }
 
 async function plan(body) {
-  const {root, images, captioned} = await scan(body.folder)
+  const model = MODELS[body.model] ? body.model : 'anima'
+  const {root, images, captioned} = await scan(body.folder, model)
   const trigger = checkTrigger(body.trigger)
-  const settings = recommend(body.purpose, images.length)
-  const name = outputName(body.name, trigger, root, body.purpose)
+  const settings = recommend(body.purpose, images.length, model)
+  const name = outputName(body.name, trigger, root, (model === 'anima' ? '' : model + '-') + body.purpose)
   const output = join(OUTPUT_DIR, name + '.safetensors')
   const queued = jobs.some(job => ['queued', 'running'].includes(job.state) && job.request.output === output)
   return {folder:root, images:images.length, captioned, trigger, name, output, comfyName:'trained/' + name + '.safetensors',
@@ -145,15 +149,19 @@ async function list(path) {
   return {path:root, parent:dirname(root) === root ? null : dirname(root), images:files, dirs}
 }
 
-/** Anima DiT LoRAs under models/loras (ComfyUI names); other formats (H3, adapters) are left out by their keys. */
-async function listLoras() {
+/** LoRAs under models/loras (ComfyUI names) usable with `model` ('anima', 'h3' or 'ph3'), told apart by their keys and the
+ *  trainer's dsh_model metadata. The VBVR LoRA H3 always applies is left out. */
+async function listLoras(model = 'anima') {
   const found = []
   async function walk(dir) {
     for (const entry of await readdir(dir, {withFileTypes:true}).catch(() => [])) {
       const path = join(dir, entry.name)
       if (entry.isDirectory()) await walk(path)
-      else if (entry.isFile() && entry.name.endsWith('.safetensors') && await isAnimaLora(path))
-        found.push({name:relative(LORA_DIR, path).split(sep).join('/'), path})
+      else if (entry.isFile() && entry.name.endsWith('.safetensors') && entry.name !== basename(H3_LORA.path)) {
+        const kind = await loraKind(path)
+        if (kind === model || kind === 'minimax' && model !== 'anima')
+          found.push({name:relative(LORA_DIR, path).split(sep).join('/'), path})
+      }
     }
   }
   await walk(LORA_DIR)
@@ -162,20 +170,36 @@ async function listLoras() {
 
 // Every key must name a module of the Anima (Cosmos Predict2) DiT; H3 LoRAs also use blocks.N.attn/mlp.fc*.
 const ANIMA_LORA_KEY = /^diffusion_model\.(blocks\.\d+\.((self|cross)_attn\.(q|k|v|output)_proj|mlp\.layer[12]|adaln_modulation_(self_attn|cross_attn|mlp)\.[12])|final_layer\.(linear|adaln_modulation\.[12])|t_embedder\.1\.linear_[12]|x_embedder\.proj\.1)\.(lora_A\.weight|lora_B\.weight|alpha)$/
+// MiniMax H3 / P-H3 (same DiT): diffusion-pipe / PEFT or kohya keys on the blocks and the token refiner.
+const MINIMAX_LORA_KEY = /^(diffusion_model\.(token_refiner\.)?blocks\.\d+\.(attn\.(qkv|out)_proj|mlp\.fc[12])\.lora_[AB]\.weight|lora_unet_(token_refiner_)?blocks_\d+_(attn_(qkv|out)_proj|mlp_fc[12])\.(lora_up\.weight|lora_down\.weight|alpha))$/
 
-async function isAnimaLora(path) {
+/** 'anima', 'h3' / 'ph3' (trained here: metadata dsh_model), 'minimax' (either of those) or null. */
+async function loraKind(path) {
   let file
   try {
     file = await open(path)
     const size = Buffer.alloc(8)
     await file.read(size, 0, 8, 0)
     const length = Number(size.readBigUInt64LE())
-    if (length > 64 << 20) return false
+    if (length > 64 << 20) return null
     const header = Buffer.alloc(length)
     await file.read(header, 0, length, 8)
-    const keys = Object.keys(JSON.parse(header.toString('utf8'))).filter(key => key !== '__metadata__')
-    return keys.length > 0 && keys.every(key => ANIMA_LORA_KEY.test(key))
-  } catch { return false } finally { await file?.close() }
+    const parsed = JSON.parse(header.toString('utf8'))
+    const keys = Object.keys(parsed).filter(key => key !== '__metadata__')
+    if (!keys.length) return null
+    if (keys.every(key => ANIMA_LORA_KEY.test(key))) return 'anima'
+    if (keys.every(key => MINIMAX_LORA_KEY.test(key))) return ['h3', 'ph3'].includes(parsed.__metadata__?.dsh_model) ? parsed.__metadata__.dsh_model : 'minimax'
+    return null
+  } catch { return null } finally { await file?.close() }
+}
+
+/** body.loras [{name, strength}] -> [{name, path, strength}] for `model` (up to 4). */
+async function chosenLoras(body, model) {
+  const available = new Map((await listLoras(model)).map(item => [item.name, item.path]))
+  return (Array.isArray(body.loras) ? body.loras : []).slice(0, 4).map(item => {
+    if (!available.has(item?.name)) throw Error('LoRA が見つかりません: ' + item?.name)
+    return {name:item.name, path:available.get(item.name), strength:number(item.strength, 'LoRA の強さ', -2, 2, false)}
+  })
 }
 
 function number(value, label, min, max, integer = true) {
@@ -193,11 +217,7 @@ export async function enqueueGenerate(body) {
   if (prompt.length > 4000 || negative.length > 4000) throw Error('プロンプトは 4000 文字以内にしてください')
   const width = number(body.width, '幅', 256, 2048), height = number(body.height, '高さ', 256, 2048)
   if (width % 16 || height % 16) throw Error('幅と高さは 16 の倍数にしてください')
-  const available = new Map((await listLoras()).map(item => [item.name, item.path]))
-  const loras = (Array.isArray(body.loras) ? body.loras : []).slice(0, 4).map(item => {
-    if (!available.has(item?.name)) throw Error('LoRA が見つかりません: ' + item?.name)
-    return {name:item.name, path:available.get(item.name), strength:number(item.strength, 'LoRA の強さ', -2, 2, false)}
-  })
+  const loras = await chosenLoras(body, 'anima')
   const seed = body.seed === null || body.seed === undefined || body.seed === '' ? randomInt(0, 2 ** 32)
     : number(body.seed, 'シード', 0, Number.MAX_SAFE_INTEGER)
   const id = new Date().toISOString().replace(/[:.]/g, '-') + '-gen'
@@ -235,8 +255,9 @@ export async function enqueueVideo(body) {
   const id = new Date().toISOString().replace(/[:.]/g, '-') + '-h3'
   const dir = join(JOBS, id)
   await mkdir(dir, {recursive:true})
-  const request = {kind:'h3', mode, prompt, seed, width, height, length:number(body.length, 'フレーム数', 5, 362),
-                   loras:[H3_LORA], ...inputs, output_dir:join(H3_GENERATED, id)}
+  const loras = [H3_LORA, ...await chosenLoras(body, 'h3')]  // VBVR first, then the user's (merged in this order)
+  const request = {kind:'h3', mode, prompt, seed, width, height, length:number(body.length, 'フレーム数', 5, 1440),
+                   loras, ...inputs, output_dir:join(H3_GENERATED, id)}
   await writeFile(join(dir, 'request.json'), JSON.stringify(request, null, 1))
   jobs.push({id, dir, request, state:'queued'})
   await save()
@@ -262,8 +283,9 @@ export async function enqueueImage(body) {
   const id = new Date().toISOString().replace(/[:.]/g, '-') + '-ph3'
   const dir = join(JOBS, id)
   await mkdir(dir, {recursive:true})
+  const loras = await chosenLoras(body, 'ph3')
   const request = {kind:'ph3', mode, prompt, seed, count:number(body.count, '枚数', 1, 16), width, height,
-                   ...(images.length ? {images} : {}), output_dir:join(H3_GENERATED, id)}
+                   ...(images.length ? {images} : {}), ...(loras.length ? {loras} : {}), output_dir:join(H3_GENERATED, id)}
   await writeFile(join(dir, 'request.json'), JSON.stringify(request, null, 1))
   jobs.push({id, dir, request, state:'queued'})
   await save()
@@ -398,11 +420,11 @@ async function enqueue(body) {
   const p = await plan(body)
   if (p.exists) throw Error(p.queued ? 'キューに同じ出力名の LoRA があります: ' + p.comfyName
                                      : '同じ名前の LoRA があります。出力名を変えてください: ' + p.comfyName)
-  const {images} = await scan(p.folder)
+  const {images} = await scan(p.folder, p.settings.model)
   const id = new Date().toISOString().replace(/[:.]/g, '-') + '-' + p.name
   const dir = join(JOBS, id)
   await mkdir(dir, {recursive:true})
-  const request = {folder:p.folder, images, trigger:p.trigger, overwrite:p.overwrite, purpose:body.purpose,
+  const request = {model:p.settings.model, folder:p.folder, images, trigger:p.trigger, overwrite:p.overwrite, purpose:body.purpose,
                    instruction:CAPTION_INSTRUCTIONS[body.purpose], output:p.output, steps:p.settings.steps,
                    train_args:p.settings.args, comfyName:p.comfyName, settings:p.settings}
   await writeFile(join(dir, 'request.json'), JSON.stringify(request, null, 1))
@@ -439,8 +461,8 @@ async function clearFinished() {
 
 export {cancel as cancelJob}
 
-export async function listLoraNames() {
-  return (await listLoras()).map(item => item.name)
+export async function listLoraNames(model = 'anima') {
+  return (await listLoras(model)).map(item => item.name)
 }
 
 export function registerJobApi(web) {
@@ -468,7 +490,7 @@ export function registerJobApi(web) {
         if (body.action === 'image') return reply({...await enqueueImage(body), ...await snapshot()})
         if (body.action === 'upload') return reply(await upload(body))
         if (body.action === 'dataset') return reply(await datasetFile(body))
-        if (body.action === 'loras') return reply({loras:(await listLoras()).map(item => item.name)})
+        if (body.action === 'loras') return reply({loras:await listLoraNames(['h3', 'ph3'].includes(body.model) ? body.model : 'anima')})
         if (body.action === 'cancel') return reply(await cancel(body.id))
         if (body.action === 'clear') return reply(await clearFinished())
         return reply({error:'不明な操作です'}, 400)

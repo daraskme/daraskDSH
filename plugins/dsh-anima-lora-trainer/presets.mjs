@@ -27,11 +27,26 @@ export const CAPTION_INSTRUCTIONS = {
 
 export const RESOLUTION = 1024
 
-/** Settings for a dataset of `images` files: epochs aim at the purpose's step budget. */
-export function recommend(purpose, images) {
+// Models the trainer handles. H3 / P-H3 follow diffusion-pipe's MiniMax H3 defaults (rank 32, AdamW 1e-4, 10 warmup
+// steps, CFG-augmented); their pictures train at 768 / 1024 px and H3 videos at 512 px (train_lora.py).
+export const MODELS = {
+  anima:{label:'Anima', videos:false},
+  h3:{label:'MiniMax H3（動画・画像）', videos:true, targetSteps:300, rank:32, resolution:768, args:{'learning-rate':1e-4}},
+  ph3:{label:'P-H3 画像', videos:false, targetSteps:400, rank:32, resolution:1024, args:{'learning-rate':1e-4}},
+}
+
+/** Settings for a dataset of `images` files (videos count as files too): epochs aim at the step budget. */
+export function recommend(purpose, images, model = 'anima') {
   const preset = PURPOSES[purpose]
   if (!preset) throw Error('目的を選んでください')
+  const kind = MODELS[model]
+  if (!kind) throw Error('モデルを選んでください')
+  if (model !== 'anima') {
+    const epochs = Math.max(2, Math.min(60, Math.round(kind.targetSteps / images)))
+    return {model, purpose, label:preset.label, epochs, steps:epochs * images, rank:kind.rank, resolution:kind.resolution,
+            args:{rank:kind.rank, epochs, ...kind.args}}
+  }
   const epochs = Math.max(4, Math.min(60, Math.round(preset.targetSteps / images)))
   const args = {resolution:RESOLUTION, rank:preset.rank, epochs, ...preset.args}
-  return {purpose, label:preset.label, epochs, steps:epochs * images, rank:preset.rank, resolution:RESOLUTION, args}
+  return {model, purpose, label:preset.label, epochs, steps:epochs * images, rank:preset.rank, resolution:RESOLUTION, args}
 }
