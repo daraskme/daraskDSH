@@ -35,14 +35,16 @@ def latent_out(latent):
     return latent * std / 1.0 + mean
 
 
-def cfg_denoiser(weights, cond, uncond, scale):
-    """denoised(x, sigma): one batch-2 DiT call (uncond, cond as ComfyUI batches them), x - v * sigma, then CFG."""
+def cfg_denoiser(weights, cond, uncond, scale, fp8=False):
+    """denoised(x, sigma): one batch-2 DiT call (uncond, cond as ComfyUI batches them), x - v * sigma, then CFG.
+    fp8: torch.ops.dsh_anima_gen.dit_fp8 (weights from prepare_fp8) instead of the bit-exact BF16 DiT."""
     context = torch.cat([uncond, cond])
+    dit = torch.ops.dsh_anima_gen.dit_fp8 if fp8 else torch.ops.dsh_anima_gen.dit  # CUDA graphs measured no gain
 
     def denoise(x, sigma):
         xb = torch.cat([x, x])
         sb = torch.cat([sigma, sigma])
-        out = torch.ops.dsh_anima_gen.dit(weights, xb.to(torch.bfloat16), (sb * 1.0).float(), context)
+        out = dit(weights, xb.to(torch.bfloat16), (sb * 1.0).float(), context)
         denoised = xb - out.float() * sb.view(-1, 1, 1, 1, 1)
         u, c = denoised.chunk(2)
         return u + (c - u) * scale
@@ -101,11 +103,11 @@ def er_sde(denoise, x, sigmas, seed, s_noise=1.0, max_stage=3, shift=3.0, on_ste
     return x
 
 
-def sample(weights, cond, uncond, seed, steps=34, cfg=4.5, height=1216, width=832, on_step=None):
+def sample(weights, cond, uncond, seed, steps=34, cfg=4.5, height=1216, width=832, on_step=None, fp8=False):
     """Text-to-image latent: KSampler(er_sde, simple) from an empty latent, returns the un-normalized latent."""
     sigmas = simple_sigmas(steps).cuda()
     noise = initial_noise(seed, height, width).cuda()
     x = sigmas[0].view(1, 1, 1, 1, 1) * (1.0 * noise) + (1.0 - sigmas[0].view(1, 1, 1, 1, 1)) * torch.zeros_like(noise)
-    x = er_sde(cfg_denoiser(weights, cond, uncond, cfg), x, sigmas, seed, on_step=on_step)
+    x = er_sde(cfg_denoiser(weights, cond, uncond, cfg, fp8), x, sigmas, seed, on_step=on_step)
     x = x / (1.0 - sigmas[-1].view(1, 1, 1, 1, 1))
     return latent_out(x.to(torch.float32))

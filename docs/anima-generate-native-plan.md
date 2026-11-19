@@ -128,4 +128,21 @@
 - `client.js`: 「Anima 生成」パネル（プロンプト、ネガティブ、LoRA 最大 4 個と強さ、サイズ、枚数、シード、step、CFG）。キューの一覧は両方のパネルで共通。
 - 確認: テスト用の DSH からパネルで生成（@darask 0.8、seed 42・43）。seed 42 の PNG は ComfyUI の LoRA 付きの画像と全画素一致。読み込み 3.5 s、1 枚 4.3 s（832×1216・34 step、最適化前）。
 
-残り: 速度の内訳と最適化（手順 8）。ComfyUI の基準（フックなし・3 シードの中央値）も GPU が空いているときに測り直す。
+
+### 手順 8: 速度（完了）
+
+GPU が空いた状態で測った（832×1216・34 step・CFG 4.5、モデル常駐、1 枚あたり）。
+
+| | 1 枚 | 比 |
+|---|---|---|
+| ComfyUI（フックなし、seed 1・2・3） | 4.3–4.4 s | 1.0 |
+| ネイティブ BF16（ComfyUI とビット一致） | 4.2–4.3 s | 1.0 |
+| **ネイティブ FP8（既定）** | **3.0 s** | **1.45 倍速** |
+
+- DiT 1 forward（batch 2）の内訳（BF16、118 ms）: GEMM 67 ms、flash attention 24.5 ms、要素演算・LayerNorm・RoPE 18 ms、起動の隙間 8 ms。
+- **FP8**（`dit_fp8`、`prepare_fp8`、`fp8.cu`）: 各ブロックの大きな射影 8 個（self q/k/v/o、cross q/o、MLP 2 つ）を、行ごとのスケールの FP8 GEMM（`_scaled_mm`）にした。重みは出力チャネルごと、活性は行ごと（amax/448）。活性の量子化は、直前の要素演算と一つのカーネルにまとめた（LayerNorm·modulate → FP8、GELU → FP8、attention 出力 → FP8）。量子化を PyTorch の演算で別に書くと、MLP の入力（8192 幅）では GEMM の短縮分より遅くなる。forward は 118 → 83 ms。
+  - 画質: 構図・人物・光は同じで、細部（看板の文字、小物）が変わる程度（PSNR 19–22 dB。SDE が小さな差を広げるため）。崩れやノイズはない。速度 ≥ 品質の方針で既定にし、パネルの「ComfyUI と同じ画像にする」で BF16 に戻せる。
+  - 比較: `tests/generate_fp8_quality.py`（forward の相対誤差 1.6–6.4%、3 プロンプトの画像を並べて保存）。
+- 試して採用しなかったもの: CUDA Graphs（forward は C++ で起動の隙間が小さく、差が出なかった）。text K/V の生成ごとのキャッシュは 1 forward 約 1 ms で、見送った。
+- PNG の保存（約 0.2 s）は別スレッドにして、次の画像の生成と重ねた。
+- 残る大きな部分は flash attention（FP8 の forward 83 ms のうち 24 ms、BF16 のほぼ上限）。さらに速くするなら FP8/INT8 attention だが、規模が大きいので今回はここで止める。

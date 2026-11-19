@@ -9,24 +9,19 @@ import sys
 import torch
 from safetensors import safe_open
 from safetensors.torch import load_file
-from torch.utils import cpp_extension
 
 ROOT = Path(__file__).resolve().parents[4]
 REF = ROOT / ".runtime/anima-native/generate-reference-lora"
 PLAIN = ROOT / ".runtime/anima-native/generate-reference"
 NATIVE = ROOT / "plugins/dsh-anima-lora-trainer/native"
-BUILD = ROOT / ".runtime/h3-native/build"
 MODELS = ROOT / "plugins/dsh-comfyui/models"
 sys.path.insert(0, str(NATIVE / "generate"))
 import lora  # noqa: E402
 
-CU13 = Path(torch.__file__).resolve().parents[1] / "nvidia/cu13"
-cpp_extension.load(name="dsh_anima_gen_dit", sources=[str(NATIVE / "generate/dit.cpp"),
-                   str(ROOT / "plugins/dsh-minimax-h3/native/kitchen/kitchen_ops.cpp")],
-                   is_python_module=False, with_cuda=False, build_directory=str(BUILD), extra_cflags=["-O3"],
-                   extra_include_paths=[str(CU13 / "include"), str(ROOT / ".runtime/h3-native/toolchain/nvidia/cu13/include")],
-                   extra_ldflags=[str(BUILD / "libdsh_kitchen.so"), f"-Wl,-rpath,{BUILD}",
-                                  f"-L{Path(torch.__file__).parent / 'lib'}", "-lc10_cuda"], verbose=False)
+sys.path.insert(0, str(ROOT / "plugins/dsh-anima-lora-trainer/native/generate"))
+import generate  # noqa: E402
+
+generate.build()  # the C++ ops and FP8 kernels, shared with the runner
 with safe_open(str(MODELS / "diffusion_models/anima-base-v1.0.safetensors"), "pt", device="cuda") as f:
     base = {k: f.get_tensor(k) for k in f.keys() if not k.startswith("net.llm_adapter.")}
 ref, plain = load_file(str(REF / "reference.safetensors")), load_file(str(PLAIN / "reference.safetensors"))

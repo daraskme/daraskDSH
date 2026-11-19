@@ -10,13 +10,13 @@ import time
 import torch
 from safetensors import safe_open
 from safetensors.torch import load_file
-from torch.utils import cpp_extension
 
 ROOT = Path(__file__).resolve().parents[4]
 REF = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / ".runtime/anima-native/generate-reference"
-BUILD = ROOT / ".runtime/h3-native/build"
-cpp_extension.load(name="dsh_anima_gen_vae", sources=[str(ROOT / "plugins/dsh-anima-lora-trainer/native/generate/vae.cpp")],
-                   is_python_module=False, with_cuda=False, build_directory=str(BUILD), extra_cflags=["-O3"], verbose=False)
+sys.path.insert(0, str(ROOT / "plugins/dsh-anima-lora-trainer/native/generate"))
+import generate  # noqa: E402
+
+generate.build()  # the C++ ops and FP8 kernels, shared with the runner
 ref = load_file(str(REF / "reference.safetensors"))
 latent = ref["node.13.KSampler.out.0.0.samples"].cuda()
 want = ref["node.14.VAEDecode.out.0.0"][0]
