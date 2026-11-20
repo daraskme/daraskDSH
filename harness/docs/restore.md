@@ -31,15 +31,15 @@ uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
 
 Python の仮想環境、npm の依存パッケージ、ネイティブビルド、学習用キャッシュは再作成します。ベンチマーク用の一時出力、認証トークン、作業フォルダー外のプロジェクトそのものはバックアップの対象外です。
 
-## 共有データフォルダー `/mnt/6tb/dataset`
+## 共有データフォルダー `datasets/shared/`
 
 [確認済みの非公開データセット](https://huggingface.co/datasets/darask0/darask-dataset/tree/fbd02e40977d24e80bdce603659c4e27b4c603c4) から145,296ファイルを復元できます。
 
 ```bash
 uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
-  python harness/scripts/mirror-dataset.py restore /mnt/6tb/dataset \
+  python harness/scripts/mirror-dataset.py restore datasets/shared \
   --revision fbd02e40977d24e80bdce603659c4e27b4c603c4 \
-  --cache /mnt/6tb/daraskDSH/.runtime/dataset-downloads
+  --cache .runtime/dataset-downloads
 ```
 
 元データ、注釈、画像、動画、LoRA とモデルを含みます。仮想環境、再生成できるキャッシュ、認証ファイルを除外します。一部のシンボリックリンクは元の環境でもリンク先が存在せず、フォルダー外へのリンクは元のリンク先を記録しています。ハーネスのモデルと同一のファイルは SHA-256 が一致する場合にモデル保存先から復元します。
@@ -48,7 +48,7 @@ uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
 
 ```bash
 uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
-  python harness/scripts/mirror-dataset.py pack /mnt/6tb/dataset .runtime/dataset-stage
+  python harness/scripts/mirror-dataset.py pack datasets/shared .runtime/dataset-stage
 uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
   python harness/scripts/mirror-dataset.py push .runtime/dataset-stage
 ```

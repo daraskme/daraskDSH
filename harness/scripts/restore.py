@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 
 from huggingface_hub import hf_hub_download
 
-from storage_layout import link_directory, organize_storage
+from storage_layout import LEGACY_DATASET, LEGACY_OUTPUTS, link_directory, organize_storage, rebase_file
 
 
 SUPPORT = Path(__file__).resolve().with_name("restore")
@@ -142,14 +142,11 @@ def restore_archive(path, restore_home):
 
 
 def rebase_paths(path):
-    if str(ROOT) == ORIGINAL_ROOT:
-        return
-    original = path.read_text(encoding="utf-8")
-    old_root = json.dumps(ORIGINAL_ROOT)[1:-1]
-    new_root = json.dumps(str(ROOT))[1:-1]
-    updated = original.replace('"' + old_root + '/', '"' + new_root + '/')
-    if updated != original:
-        path.write_text(updated, encoding="utf-8")
+    rebase_file(path, [
+        (LEGACY_DATASET, ROOT / "datasets/shared"),
+        (LEGACY_OUTPUTS, ROOT / "outputs/comfyui"),
+        (Path(ORIGINAL_ROOT), ROOT),
+    ])
 
 
 def main():

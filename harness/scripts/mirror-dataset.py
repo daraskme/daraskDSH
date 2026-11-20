@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Back up or restore the private /mnt/6tb/dataset tree on Hugging Face."""
+"""Back up or restore the shared dataset on Hugging Face."""
 import argparse
 from collections import Counter
 import errno
@@ -15,7 +15,8 @@ from tempfile import TemporaryDirectory
 from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.hf_api import RepoFile
 
-from restore import SUPPORT, digest, download_file, merge_directory
+from restore import ROOT, SUPPORT, digest, download_file, merge_directory
+from storage_layout import LEGACY_DATASET, LEGACY_OUTPUTS, rebase_file, rebased_link
 
 
 REPO = "darask0/darask-dataset"
@@ -30,6 +31,7 @@ TEXT_SUFFIXES = {
     "", ".txt", ".md", ".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini",
     ".conf", ".cfg", ".csv", ".log", ".py", ".js", ".sh", ".xml", ".ipynb",
 }
+CONFIG_SUFFIXES = {".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg", ".py", ".sh", ".mjs", ".js", ".service"}
 SECRET = re.compile(
     rb"(sk-(?:proj-|ant-)[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}"
     rb"|hf_[A-Za-z0-9]{30,}|AIza[A-Za-z0-9_-]{35}|AKIA[A-Z0-9]{16}"
@@ -113,6 +115,7 @@ def pack(source, stage):
     omitted = Counter()
     manifest = {
         "version": 1, "files": [], "large": [], "links": [], "directories": [],
+        "source_root": str(source),
         "model_source": {"repo": models["repo"], "revision": models["revision"]},
     }
 
@@ -254,6 +257,8 @@ def restore_dataset(repo, revision, destination, cache):
     manifest = json.loads(Path(pointer).read_text(encoding="utf-8"))
     if manifest["version"] != 1:
         raise ValueError("Unsupported dataset backup version")
+    source = Path(manifest.get("source_root", LEGACY_DATASET))
+    outputs = ROOT / "outputs/comfyui"
     for entry in manifest["files"]:
         if not entry["path"].startswith("archives/"):
             continue
@@ -261,7 +266,11 @@ def restore_dataset(repo, revision, destination, cache):
         with TemporaryDirectory(dir=cache) as extracted:
             with tarfile.open(path, "r:") as archive:
                 archive.extractall(extracted, filter="data")
-            merge_directory(Path(extracted), root)
+            tree = Path(extracted)
+            for file in tree.rglob("*"):
+                if file.suffix in CONFIG_SUFFIXES and file.is_file() and not file.is_symlink():
+                    rebase_file(file, [(source, root), (LEGACY_OUTPUTS, outputs)])
+            merge_directory(tree, root)
         path.unlink()
     model_source = manifest["model_source"]
     uses = Counter((entry["source"], entry["path"]) for entry in manifest["large"])
@@ -289,6 +298,7 @@ def restore_dataset(repo, revision, destination, cache):
         target_path(root, name).mkdir(parents=True, exist_ok=True)
     for name, link in manifest["links"]:
         target = target_path(root, name)
+        link = rebased_link(link, Path(name), source, root, outputs)
         if not (target.is_symlink() and target.readlink() == Path(link)):
             target.symlink_to(link)
     print(f"Restored dataset revision {info.sha} to {root}", flush=True)

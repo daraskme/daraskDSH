@@ -2,6 +2,38 @@
 import json
 import os
 from pathlib import Path
+import re
+
+
+LEGACY_DATASET = Path("/mnt/6tb/dataset")
+LEGACY_OUTPUTS = Path("/mnt/6tb/outputs")
+
+
+def rebase_file(path, moves):
+    replacements = {os.fsencode(old): os.fsencode(new) for old, new in moves if old != new}
+    if not replacements:
+        return False
+    original = path.read_bytes()
+    # Match complete path components, including paths stored in JSON or shell commands.
+    prefixes = b"|".join(re.escape(old) for old in sorted(replacements, key=len, reverse=True))
+    pattern = rb"(?<![\w./-])(?:" + prefixes + rb")(?=/|[\"'\s;,\])}]|$)"
+    updated = re.sub(pattern, lambda match: replacements[match.group()], original)
+    if updated != original:
+        path.write_bytes(updated)
+        return True
+    return False
+
+
+def rebased_link(value, relative, source, destination, outputs):
+    original = Path(value)
+    parent = relative.parent
+    target = Path(os.path.normpath(source / parent / original))
+    if target.is_relative_to(source):
+        new = destination / target.relative_to(source)
+        return os.path.relpath(new, destination / parent)
+    if target.is_relative_to(LEGACY_OUTPUTS):
+        return os.path.relpath(outputs / target.relative_to(LEGACY_OUTPUTS), destination / parent)
+    return value if original.is_absolute() else str(target)
 
 
 def link_directory(link, target):
@@ -77,7 +109,10 @@ def organize_storage(root, *, aliases=True):
         for name in ("images/anima", "images/p-h3", "edits/anima", "edits/p-h3", "videos"):
             (root / "outputs" / name).mkdir(parents=True, exist_ok=True)
         (root / "models/loras/trained").mkdir(parents=True, exist_ok=True)
-        link_directory(root / "datasets/shared", root.parent / "dataset")
+        shared = root / "datasets/shared"
+        if shared.is_symlink():
+            raise FileExistsError(f"The shared dataset must be a directory inside the checkout: {shared}")
+        shared.mkdir(parents=True, exist_ok=True)
         link_directory(root / "datasets/references/gemma_candidates", root / "outputs/comfyui/gemma_candidates")
 
 
