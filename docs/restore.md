@@ -33,17 +33,18 @@ Python の仮想環境、npm の依存パッケージ、ネイティブビルド
 
 ## 共有データフォルダー `/mnt/6tb/dataset`
 
-[非公開データセット](https://huggingface.co/datasets/darask0/darask-dataset) に、有効なバックアップを示す `manifest.json` がある場合は次の手順で復元できます。コミット ID を指定する場合は `--revision <コミットID>` を加えます。
+[確認済みの非公開データセット](https://huggingface.co/datasets/darask0/darask-dataset/tree/fbd02e40977d24e80bdce603659c4e27b4c603c4) から145,296ファイルを復元できます。
 
 ```bash
 uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
   python scripts/mirror-dataset.py restore /mnt/6tb/dataset \
+  --revision fbd02e40977d24e80bdce603659c4e27b4c603c4 \
   --cache /mnt/6tb/daraskDSH/.runtime/dataset-downloads
 ```
 
 元データ、注釈、画像、動画、LoRA とモデルを含みます。仮想環境、再生成できるキャッシュ、認証ファイルを除外します。一部のシンボリックリンクは元の環境でもリンク先が存在せず、フォルダー外へのリンクは元のリンク先を記録しています。ハーネスのモデルと同一のファイルは SHA-256 が一致する場合にモデル保存先から復元します。
 
-更新後のファイルを保存するときは、新規の作業ディレクトリを指定します。別のファイルシステムを使う場合は、大きなファイルの一時コピー分の容量が必要です。アップロードが中断した場合は、同じ作業ディレクトリに対して `push` を再実行できます。全ファイルの照合後にマニフェストを更新します。
+更新後のファイルを保存するときは、新規の作業ディレクトリを指定します。別のファイルシステムを使う場合は、大きなファイルの一時コピー分の容量が必要です。アップロードが中断した場合は、同じ作業ディレクトリに対して `push` を再実行できます。全ファイルを照合して最新のマニフェストを更新します。確認済みの最新版を復元する場合は、上の `--revision` を省略してください。
 
 ```bash
 uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \

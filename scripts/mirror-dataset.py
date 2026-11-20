@@ -86,6 +86,15 @@ def file_entry(path, name, checksum=None):
     return {"path": name, "size": path.stat().st_size, "sha256": checksum or digest(path)}
 
 
+def link_or_copy(source, destination):
+    try:
+        os.link(source, destination)
+    except OSError as error:
+        if error.errno not in (errno.EXDEV, errno.EOPNOTSUPP, errno.EPERM):
+            raise
+        shutil.copy2(source, destination)
+
+
 def tar_metadata(entry):
     entry.uid = entry.gid = 0
     entry.uname = entry.gname = ""
@@ -140,12 +149,7 @@ def pack(source, stage):
                     name = f"objects/{checksum}.bin"
                     dest = stage / name
                     if not dest.exists():
-                        try:
-                            os.link(path, dest)
-                        except OSError as error:
-                            if error.errno != errno.EXDEV:
-                                raise
-                            shutil.copy2(path, dest)
+                        link_or_copy(path, dest)
                         manifest["files"].append(file_entry(dest, name, checksum))
                     entry = {"path": name, "sha256": checksum, "size": size, "source": "dataset"}
                 manifest["large"].append(dict(entry, destination=relative.as_posix()))
@@ -260,7 +264,10 @@ def restore_dataset(repo, revision, destination, cache):
             merge_directory(Path(extracted), root)
         path.unlink()
     model_source = manifest["model_source"]
+    uses = Counter((entry["source"], entry["path"]) for entry in manifest["large"])
     for entry in manifest["large"]:
+        key = (entry["source"], entry["path"])
+        uses[key] -= 1
         target = target_path(root, entry["destination"])
         if target.is_symlink():
             raise FileExistsError(target)
@@ -273,10 +280,11 @@ def restore_dataset(repo, revision, destination, cache):
         else:
             path = download_file(repo, info.sha, "dataset", entry, cache)
         target.parent.mkdir(parents=True, exist_ok=True)
-        if path.stat().st_dev == target.parent.stat().st_dev:
-            os.link(path, target)
-        else:
+        if uses[key]:
             shutil.copy2(path, target)
+        else:
+            link_or_copy(path, target)
+            path.unlink()
     for name in manifest["directories"]:
         target_path(root, name).mkdir(parents=True, exist_ok=True)
     for name, link in manifest["links"]:
