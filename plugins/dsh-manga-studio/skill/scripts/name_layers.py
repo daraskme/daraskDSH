@@ -10,6 +10,8 @@
   anima_prompt(doc, panel, manpu)     T5 512 トークンに収めた (正の文, avoid の文)。avoid はネガティブへ
   fit_prompt(prefix, prompt, extras)  足す文（検品の直しなど）を丸ごと残し、本文を後ろの文から削って収める
   auto_layers(panel, place, overlay, aspect)  ネームと推定配置からの層の叩き台（コマの中の割合）
+  scene(doc, panel, place) / places(doc)       参照で描く（三面図・場所の背景 → 編集モデル）ための場面の情報と場所の一覧
+  reference_prompt(scene, style, sheets, plate, cast)  参照で描くときの指示文（<Picture k> の割り当てつき）
 
 コマンドとしては name_export.py --to anima / --to layers から使う。
 """
@@ -119,12 +121,95 @@ def auto_layers(p, place, overlay, aspect):
     return out
 
 
+# 背景の画を参照に渡さないコマ（背景を描かない指定）と、その代わりの指示
+NO_PLATE = {"white": "plain white background", "tone": "plain background with flat screentone only",
+            "black": "solid black background", "effect": "plain white background (effect lines are added later)"}
+
+
+def place_key(text):
+    """場所の名前を、背景の画を引くための key にする（大文字小文字と空白の違いを吸収）."""
+    return " ".join(str(text or "").lower().split())[:120]
+
+
+def scene(doc, p, place):
+    """参照で描く（三面図・背景の画を渡す編集モデル）ための、コマの場面の情報（英語）."""
+    cast = doc["_cast"]
+    bg = ne.BG_ALIASES.get(str(p.get("background", "")).strip(), str(p.get("background", "")).strip())
+    chars = []
+    for c in p.get("characters", []) or []:
+        slot = mn.POSITIONS.get(str(c.get("pos", "")))
+        chars.append({"id": c.get("id"), "name": cast.get(c.get("id"), {}).get("name") or c.get("id"),
+                      "position": ne.POS_EN.get(slot, ""), "pose": c.get("pose", ""), "expression": c.get("expression", ""),
+                      "outfit": c.get("outfit_en", "")})
+    return {"camera": ne._cam(p), "visual": p.get("visual", ""), "place": place.get("text", ""), "place_key": place.get("key", ""),
+            "time": p.get("time_en") or "", "plate": bg not in NO_PLATE, "background": NO_PLATE.get(bg, ""),
+            "detail": mn.normalize_detail(p.get("detail")) or "normal", "characters": chars}
+
+
+def places(doc):
+    """ネームに出てくる場所（背景の画を描く単位）: [{key, text, panels}]。場所はその場面の後のコマへ引き継ぐ."""
+    out = {}
+    for _, p, place in _walk_places(doc):
+        if place.get("key"):
+            out.setdefault(place["key"], {"key": place["key"], "text": place["text"], "panels": []})["panels"].append(p.get("id"))
+    return list(out.values())
+
+
+def _walk_places(doc):
+    current, last_scene = {}, None
+    for page in doc.get("pages", []):
+        for p in page.get("panels", []):
+            if p.get("scene") is not None and p.get("scene") != last_scene and not (p.get("place_en") or p.get("place")):
+                current = {}   # 場面が変わったのに場所が書かれていない: 引き継がない
+            if p.get("place_en") or p.get("place"):
+                text = str(p.get("place_en") or p.get("place"))
+                current = {"key": place_key(text), "text": text}
+            last_scene = p.get("scene", last_scene)
+            yield page, p, current
+
+
+def reference_prompt(sc, style, sheets=(), plate=False, appearance=None, extras=()):
+    """参照で描く（P-H3 などの参照生成）ときの指示文. sheets は三面図のある人物の id（この順に <Picture 1>〜）、
+    plate は場所の背景の画を最後の <Picture> として渡すか。三面図の無い人物は appearance（id → 外見の英文）で書く."""
+    appearance = appearance or {}
+    lines, k = [], 0
+    for ch in sc["characters"]:
+        if ch["id"] in sheets:
+            k += 1
+            lines.append(f"<Picture {k}> is the character sheet of {ch['name']} (one person, possibly shown from several angles; "
+                         f"draw {ch['name']} only once).")
+        elif appearance.get(ch["id"]):
+            lines.append(f"{ch['name']}: {appearance[ch['id']]}.")
+    if plate and sc["plate"]:
+        k += 1
+        lines.append(f"<Picture {k}> is the place ({sc['place']}); keep its layout, furniture and objects, seen from this panel's camera.")
+    elif sc["background"]:
+        lines.append(sc["background"][0].upper() + sc["background"][1:] + ".")
+    elif sc["place"]:
+        lines.append(f"Place: {sc['place']}.")
+    people = sc["characters"]
+    out = [f"Draw one manga panel in exactly the same black-and-white ink style as the reference pictures: {style}.", *lines,
+           f"Camera: {sc['camera']}." if sc["camera"] else "",
+           f"Exactly {len(people)} {'people' if len(people) > 1 else 'person'}." if people else "No people."]
+    for ch in people:
+        bits = ", ".join(x for x in (ch["pose"], ch["outfit"] and "wearing " + ch["outfit"]) if x)
+        out.append(f"{ch['name']}{' ' + ch['position'] if ch['position'] else ''}: {bits}"
+                   + (f"; facial expression clearly readable and strong: {ch['expression']}" if ch["expression"] else "") + ".")
+    out += [f"Scene: {sc['visual']}." if sc["visual"] else "",
+            {"key": "This is a key panel: draw the characters and the place with full care and line work.",
+             "light": "Keep the drawing simple with few lines."}.get(sc["detail"], ""),
+            *extras, "No text, no letters, no speech bubbles, no sound effects, no effect lines, no color."]
+    return " ".join(x for x in out if x)
+
+
 def panels(doc, overlay=None):
-    """ページごとのコマ: id、bbox（ページの norm_1000）、aspect（横/縦の実寸）、絵のプロンプト、Anima 用、層の叩き台."""
+    """ページごとのコマ: id、bbox（ページの norm_1000）、aspect（横/縦の実寸）、絵のプロンプト、Anima 用、
+    層の叩き台、場面（参照で描くとき）."""
     overlay = overlay_names() if overlay is None else overlay
     manpu = mn.manpu_index()
     fmt = mn.name_format(doc)
     pages = []
+    place_of = {id(p): pl for _, p, pl in _walk_places(doc)}
     for i, page in enumerate(doc.get("pages", [])):
         number = page.get("number", i + 1)
         aspect = mn.page_aspect(doc, page)
@@ -140,7 +225,8 @@ def panels(doc, overlay=None):
             out.append({"id": p.get("id"), "bbox": [round(float(v), 1) for v in p["_bbox"]],
                         "aspect": round(max(x2 - x1, 1) / max((y2 - y1) * aspect, 1), 4),
                         "prompt": ne.panel_prompt(doc, pic, manpu), "anima": anima, "avoid": avoid,
-                        "layers": auto_layers(p, place, overlay, aspect)})
+                        "layers": auto_layers(p, place, overlay, aspect),
+                        "scene": scene(doc, p, place_of.get(id(p), {}))})
         pages.append({"number": number, "side": mn.page_side(doc, number), "aspect": aspect, "panels": out})
     return pages
 

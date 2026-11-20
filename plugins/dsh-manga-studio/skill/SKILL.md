@@ -127,7 +127,7 @@ AI に任せると平均が出る。平均とは、全コマ同じ密度、全�
 ```
 
 ### render
-`references/image-generation.md` に従う。先に `references/art-direction.md` で、各コマの `detail` と `background`、画風ブロックを決める。生成の単位（コマ別 / ページ一括 / bbox で配置）と、文字の方針（`blank` / `in-image`）を決め、`name_export.py` で書き出す。Krea 2 の JSON/BBOX LoRA には `--to krea`（人物の `lora` 別名と `pose`、台詞の `speakers` が入る）、PH3DaraskMix の manga lora には `--to krea --layout-prefix ph3`。文字と線の演出を絵に描かせない作り方なら `--to anima`（絵のプロンプト）と `--to layers`（層の叩き台）を出す（`references/lettering-layers.md`）。書き出した後に「生成した」とは言わない。生成した絵が来たら check、その後 letter。
+`references/image-generation.md` に従う。先に `references/art-direction.md` で、各コマの `detail` と `background`、画風ブロックを決める。生成の単位（コマ別 / ページ一括 / bbox で配置）と、文字の方針（`blank` / `in-image`）を決め、`name_export.py` で書き出す。Krea 2 の JSON/BBOX LoRA には `--to krea`（人物の `lora` 別名と `pose`、台詞の `speakers` が入る）、PH3DaraskMix の manga lora には `--to krea --layout-prefix ph3`。文字と線の演出を絵に描かせない作り方なら `--to anima`（絵のプロンプト）・`--to reference`（三面図と場所の背景を参照に渡して描かせる指示文）と `--to layers`（層の叩き台）を出す（`references/lettering-layers.md`）。書き出した後に「生成した」とは言わない。生成した絵が来たら check、その後 letter。
 
 ### check
 `references/visual-check.md` の表を、上の層（読み順・人物）から順に見る。Pillow があれば `tone_check.py` で灰の塗りも測る。コマごとに OK / 作り直し / 手で直す / keep と理由。作り直しはネームの欄を直す形で指示する。画像を読めるモデルに検品させて直しを回すときは §5（落とすのは話を追えなくなる点だけ、回数に上限）。
@@ -186,7 +186,7 @@ AI に任せると平均が出る。平均とは、全コマ同じ密度、全�
 | `tone_check.py page.png ...` | 生成した白黒ページの灰の塗り（白・黒・中間・なめらかな灰の面）を測り、なめらかな灰の面が 0.005（実際の漫画の上位 5% の少し上）を超えるか、白が 48% 未満なら知らせる（目で確かめる場所の印）。見開きは `--spread` で左右別に。**Pillow が要る**（無ければ飛ばして目で見る） |
 | `name_render.py name.toml --md 台本.md [--reader] / --html ネーム.html / --svg DIR` | 台本（読者用は設計情報を落とす）と、コマ割りの見えるネーム画像（右綴じの見開きで並べる） |
 | `name_export.py name.toml --to krea\|panels\|page-prompt\|lettering\|sections --out ...` | 画像生成と写植への書き出し。krea は krea_layout_v1（絶対座標の JSON と正規化プロンプト、`--krea-repo` で外部の検査も。`--layout-prefix ph3` で PH3DaraskMix の manga lora 向けの ph3_layout_v1）。panels・page-prompt には `detail` と `background` の指示が英語で入る。sections は見出し区切りの文章（title・panelN のプロンプト・ページごとのセリフ・組み立てに渡らない文字の notes）。compose はページを組む道具に渡す画素の配置（JSON） |
-| `name_export.py name.toml --to anima [--prefix …] / --to layers` | 絵と層を分ける作り方の書き出し。anima はコマごとの絵のプロンプト（文字と層で描く演出を外し、T5 512 トークンに収める）とネガティブ、layers はコマの縦横比と層の叩き台（`name_layers.py`） |
+| `name_export.py name.toml --to anima [--prefix …] / --to reference / --to layers` | 絵と層を分ける作り方の書き出し。anima はコマごとの絵のプロンプト（文字と層で描く演出を外し、T5 512 トークンに収める）とネガティブ、reference は場所の一覧とコマごとの参照で描く指示文（三面図・場所の背景を `<Picture k>` で渡す）、layers はコマの縦横比と層の叩き台（`name_layers.py`） |
 | `typeset.py panel layers.json --aspect A --out panel.svg / styles / sample OUT` | 写植・演出の層を SVG に（文字はパス、縦書きは HarfBuzz の字形）。書き文字 19 スタイル。**fonttools・uharfbuzz とフォント（`fetch_fonts.py`）が要る** |
 | `page_compose.py name.toml --images DIR [--layers L] --out DIR [--png]` | ページを組む（絵をコマ枠に切り抜き、枠線、層）。PNG は rsvg-convert か Chrome があるとき |
 | `make_cbz.py OUT.cbz p*.png --title 題名` | ページを CBZ に（右綴じ・白黒の ComicInfo.xml） |

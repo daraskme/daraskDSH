@@ -6,6 +6,7 @@
     {pages: [{number, side, aspect, panels: [{id, bbox, aspect, prompt, anima, avoid, layers}]}],
      issues: [{code, level, where, message}], stats, error?}
   python manga.py crop SRC DST ASPECT    コマの縦横比（横/縦）で中央を切り抜いた確認用の絵（長辺 1024px）
+  python manga.py mono SRC DST           白黒にする
 
 bbox はページの norm_1000。layers の座標はコマの中の割合（x は幅、y は高さに対して 0〜1）。
 """
@@ -30,7 +31,7 @@ def analyze(path):
     doc["meta"].pop("overlay", None)   # 層で描く漫符・効果は skill/scripts/data/overlay.json
     th, opts = nl.load_config(doc, path, None)
     issues, stats = nl.lint(doc, th, opts)
-    return {"pages": nlay.panels(doc), "issues": [i.as_dict() for i in issues], "stats": stats}
+    return {"pages": nlay.panels(doc), "places": nlay.places(doc), "issues": [i.as_dict() for i in issues], "stats": stats}
 
 
 def crop(src, dst, aspect):
@@ -47,6 +48,12 @@ def crop(src, dst, aspect):
     img.save(dst)
 
 
+def mono(src, dst):
+    """白黒にする（編集モデルの出力に混じる色を落とす）."""
+    from PIL import Image
+    Image.open(src).convert("L").save(dst)
+
+
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == "analyze":
         print(json.dumps(analyze(sys.argv[2]), ensure_ascii=False, default=str))
@@ -54,7 +61,10 @@ def main():
     if len(sys.argv) == 5 and sys.argv[1] == "crop":
         crop(sys.argv[2], sys.argv[3], float(sys.argv[4]))
         return 0
-    print("使い方: manga.py analyze NAME.json | crop SRC DST ASPECT", file=sys.stderr)
+    if len(sys.argv) == 4 and sys.argv[1] == "mono":
+        mono(sys.argv[2], sys.argv[3])
+        return 0
+    print("使い方: manga.py analyze NAME.json | crop SRC DST ASPECT | mono SRC DST", file=sys.stderr)
     return 2
 
 

@@ -61,7 +61,8 @@
 - **参照にない角度は、別に参照を作る。** 真後ろ、真上、横顔など、キャラシートに無い角度を何度も使うなら、その角度の参照を足す（同上）。
 - **理想の一枚を参照に加える。** 狙いどおりに描けた一コマを参照画像に加えると、服や小物の色が安定した、という報告がある（https://note.com/note_ai_s/n/nf2a1f1847ad6 ）。前のコマの出力を連鎖させるのではなく、「認めた一枚」を固定の参照として足す、という区別を守る。
 - **モデルの参照枚数を確かめる。** たとえば Nano Banana Pro は参照画像を最大 14 枚使え、最大 5 人の同一性を保てると公式に発表されている（https://blog.google/technology/ai/nano-banana-pro/ 、2025-11-20）。一コマに出す人物が上限を超えないよう、ネームの段階で人数を絞る。モデルごとの違いは `image-generation.md`。
-- **AI で設定画を描くとき。** 外見の固定文面（`appearance`）と画風ブロックに、`solo, character reference sheet of one person, full body, standing straight, front view, arms relaxed, neutral expression, plain white background` を足し、ネガティブに `2boys, 2girls, multiple boys, multiple girls, multiple views, turnaround, extra people` を入れる。`solo` が無いと、Anima では 1 枚に 2 人描かれることがあった（AI の検品で見つかった）。2〜4 枚描いて、外見の文面にいちばん合う 1 枚を設定画にする。設定画は、参照生成・編集（P-H3 など）と検品（`visual-check.md` §5）に渡す。
+- **AI で三面図を描くとき。** 画風を効かせる画像モデル（Anima など）に、外見の固定文面（`appearance`）と画風ブロックと `character turnaround sheet, the same single character drawn three times side by side: front view, side view, back view, full body, standing straight, arms relaxed, neutral expression, plain white background` を渡し、横長（1344×768 など）で描く。ネガティブに `different characters, extra people, crowd, cropped, color`。参照生成に渡すときは「1 人を 3 方向から描いたもの。この人物は 1 度だけ描く」と書く（そう書けば三面図の 3 人をコマに写すことは無かった）。2〜4 枚描いて、外見の文面にいちばん合う 1 枚を設定画にする。三面図は、参照で描く（`image-generation.md` §7 のマンガタブ）・編集・検品（`visual-check.md` §5）に渡す。正面だけの立ち絵（`solo`）だと、横顔・後ろ姿のコマで見た目がずれやすい。
+- **場所も同じ考え方で。** 同じ場所のコマが続くなら、人のいない背景（`background art only, no people, wide shot, eye level` ＋場所の文面＋画風ブロック、ネガティブに `people, person, character`）を 1 枚描いて参照に渡すと、コマごとに間取りや小物が変わらない。
 - **キャラシートに無い特徴を後から足さない。** 本文やネームで「左手に傷がある」と書いたら、キャラシートと `appearance` も直す。直さないまま進めると、描かれた絵と設定が食い違う。
 
 ## 5. 領域別 LoRA（`lora` 別名）

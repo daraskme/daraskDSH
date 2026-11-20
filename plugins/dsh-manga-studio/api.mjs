@@ -111,7 +111,8 @@ async function createProject(body) {
     id, created:new Date().toISOString(),
     brief:{idea, pages:int(body.pages ?? 8, 'ページ数', 1, 60), genre:text(body.genre, 'ジャンル', 200), format, rating,
            service:SERVICES.includes(body.service) ? body.service : 'claude'},
-    render:{prefix:DEFAULT_PREFIX, negative:'', loras:[], steps:34, cfg:4.5},
+    render:{prefix:DEFAULT_PREFIX, negative:'', loras:[], steps:34, cfg:4.5, engine:'ref', mono:true},
+    places:{},
     name:{meta:{title, format, rating, first_page_side:'left', style:text(body.style, '画風', 2000) || DEFAULT_STYLE}, characters:[], pages:[]},
     takes:{}, adopted:{}, layers:{}, task:null,
   }
@@ -379,7 +380,7 @@ async function enqueuePanel(project, data, panelId, body) {
   const {panel} = findPanel(project, panelId)
   const r = project.render
   const extra = text(body.extra, '追加のプロンプト', 2000)
-  const engine = body.engine === 'ph3' ? 'ph3' : 'anima'
+  const engine = ['anima', 'ph3', 'ref'].includes(body.engine) ? body.engine : r.engine || 'ref'
   // Anima reads at most 512 T5 tokens: its prompt is the compact one, the avoid list goes to the negative.
   const base = engine === 'anima' ? fitAnima(r.prefix, placed.anima, [panel.extra_prompt, extra])
     : [r.prefix, placed.prompt, panel.extra_prompt, extra].filter(Boolean).join(', ')
@@ -393,6 +394,13 @@ async function enqueuePanel(project, data, panelId, body) {
     const {id} = await enqueueGenerate({prompt:base, negative:[r.negative, placed.avoid, NO_TEXT].filter(Boolean).join(', '), width, height, loras:unique, count:int(body.count ?? 2, '枚数', 1, 8),
                                         steps:r.steps, cfg:r.cfg, seed:body.seed ?? null, fp8:true})
     Object.assign(take, {job:id, width, height, loras:unique})
+  } else if (engine === 'ref') {
+    // Anima draws the style (turnaround sheets, place plates); P-H3 draws the panel from them as told.
+    const {prompt, images} = await referencePrompt(project, placed, panel, [panel.extra_prompt, extra])
+    const [width, height] = panelSize(placed.bbox, placed.aspect, 1344, 32, 512, 2912)
+    const {id} = await enqueueImage({mode:images.length ? 'reference' : 't2i', prompt, images, width, height,
+                                     count:int(body.count ?? 2, '枚数', 1, 8), seed:body.seed ?? null})
+    Object.assign(take, {job:id, width, height, prompt, refs:images.length})
   } else {
     // P-H3 from the characters' reference sheets: <Picture k> names each character.
     const refs = inPanel.filter(c => c.ref)
@@ -409,6 +417,43 @@ async function enqueuePanel(project, data, panelId, body) {
   ;(project.takes[panelId] ??= []).unshift(take)
   pending.add(project.id)
   return take
+}
+
+/** The P-H3 prompt and pictures for "draw with references": each character's turnaround sheet, the place's plate,
+ *  then the panel's camera, positions, poses and expressions from the name. */
+async function referencePrompt(project, placed, panel, extras) {
+  const sc = placed.scene || {}
+  const cast = new Map(project.name.characters.map(c => [c.id, c]))
+  const images = [], lines = []
+  const people = []
+  for (const ch of sc.characters || []) {
+    const c = cast.get(ch.id)
+    const name = ch.name || ch.id
+    if (c?.ref && images.length < 8) {
+      images.push(await uploadFile(join(PROJECTS, project.id, 'refs', c.ref)))
+      lines.push(`<Picture ${images.length}> is the character sheet of ${name} (one person, possibly shown from several angles; draw ${name} only once).`)
+    } else if (c?.appearance) lines.push(`${name}: ${c.appearance}.`)
+    people.push(ch)
+  }
+  const plate = sc.plate && sc.place_key ? Object.values(project.places || {}).find(p => p.key === sc.place_key && p.ref) : null
+  if (plate) {
+    images.push(await uploadFile(join(PROJECTS, project.id, 'refs', plate.ref)))
+    lines.push(`<Picture ${images.length}> is the place (${sc.place}); keep its layout, furniture and objects, seen from this panel's camera.`)
+  } else if (sc.background) lines.push(sc.background.charAt(0).toUpperCase() + sc.background.slice(1) + '.')
+  else if (sc.place) lines.push(`Place: ${sc.place}.`)
+  const out = [
+    `Draw one manga panel in exactly the same black-and-white ink style as the reference pictures: ${project.name.meta.style}.`,
+    ...lines,
+    sc.camera ? `Camera: ${sc.camera}.` : '',
+    people.length ? `Exactly ${people.length} ${people.length > 1 ? 'people' : 'person'}.` : 'No people.',
+    ...people.map(ch => `${ch.name}${ch.position ? ' ' + ch.position : ''}: ${[ch.pose, ch.outfit && 'wearing ' + ch.outfit].filter(Boolean).join(', ')}` +
+      (ch.expression ? `; facial expression clearly readable and strong: ${ch.expression}` : '') + '.'),
+    sc.visual ? `Scene: ${sc.visual}.` : '',
+    sc.detail === 'key' ? 'This is a key panel: draw the characters and the place with full care and line work.' : sc.detail === 'light' ? 'Keep the drawing simple with few lines.' : '',
+    ...extras.filter(Boolean),
+    'No text, no letters, no speech bubbles, no sound effects, no effect lines, no color.',
+  ]
+  return {prompt:out.filter(Boolean).join(' '), images}
 }
 
 async function generate(body) {
@@ -476,14 +521,25 @@ async function settleTakes(project) {
       continue
     }
     if (job.state === 'done') {
+      const mono = take.engine !== 'anima' && project.render.mono !== false
       for (const image of job.images) {
         const name = `${panelId}-${take.id}-${basename(image.file)}`
-        await copyFile(join(job.dir, image.file), join(PROJECTS, project.id, 'images', name)).catch(() => {})
+        const from = join(job.dir, image.file), to = join(PROJECTS, project.id, 'images', name)
+        // P-H3 can bring colour in from the references: keep the page black and white.
+        if (mono) await run(PYTHON, ['-I', HELPER, 'mono', from, to], {timeout:60000}).catch(() => copyFile(from, to)).catch(() => {})
+        else await copyFile(from, to).catch(() => {})
         if (existsSync(join(PROJECTS, project.id, 'images', name))) take.files.push(name)
       }
       take.state = take.files.length ? 'done' : 'error'
       if (!take.files.length) take.message = '画像が見つかりません'
-      if (panelId.startsWith('@char:')) {
+      if (panelId.startsWith('@place:')) {
+        const place = project.places?.[panelId.slice(7)]
+        if (place && !place.ref && take.files.length) {
+          await mkdir(join(PROJECTS, project.id, 'refs'), {recursive:true})
+          place.ref = 'place-' + panelId.slice(7) + '-' + randomBytes(3).toString('hex') + extname(take.files[0])
+          await copyFile(join(PROJECTS, project.id, 'images', take.files[0]), join(PROJECTS, project.id, 'refs', place.ref))
+        }
+      } else if (panelId.startsWith('@char:')) {
         // A character sheet: the first one becomes the character's reference when it has none.
         const c = project.name.characters.find(c => c.id === panelId.slice(6))
         if (c && !c.ref && take.files.length) {
@@ -521,7 +577,9 @@ async function getProject(id) {
   return withProject(String(id), async project => {
     if (await settleTakes(project)) await writeProject(project)
     if (Object.values(project.takes).flat().some(t => ['queued', 'running'].includes(t.state))) pending.add(project.id)
-    return {project, analysis:await analyze(project), running:tasks.has(project.id)}
+    const analysis = await analyze(project)
+    analysis.places = (analysis.places || []).map(p => ({...p, id:placeId(p.key)}))
+    return {project, analysis, running:tasks.has(project.id)}
   }, false)
 }
 
@@ -591,6 +649,8 @@ async function updateSettings(body) {
     if ('pages' in body) project.brief.pages = int(body.pages, 'ページ数', 1, 60)
     if ('prefix' in body) r.prefix = text(body.prefix, '先頭のプロンプト', 1000)
     if ('negative' in body) r.negative = text(body.negative, 'ネガティブプロンプト', 2000)
+    if ('engine' in body) r.engine = ['ref', 'anima', 'ph3'].includes(body.engine) ? body.engine : 'ref'
+    if ('mono' in body) r.mono = body.mono !== false
     if ('steps' in body) r.steps = int(body.steps, 'step 数', 1, 100)
     if ('cfg' in body) { const v = Number(body.cfg); if (!(v >= 1 && v <= 20)) throw Error('CFG は 1〜20 です'); r.cfg = v }
     if ('loras' in body) {
@@ -1017,7 +1077,7 @@ async function applyFix(project, panelId, result) {
     return editPanel(project, panelId, {take:adopted.take, file:adopted.file, instruction:result.fix.instruction, refs:true, autoAdopt:true})
   }
   const data = await analyze(project)
-  return enqueuePanel(project, data, panelId, {engine:'anima', count:1, extra:result.fix.prompt, autoAdopt:true})
+  return enqueuePanel(project, data, panelId, {engine:project.render.engine || 'ref', count:1, extra:result.fix.prompt, autoAdopt:true})
 }
 
 /** After the automatic fixes of a page are drawn, inspects the page again (up to the loop's limit). */
@@ -1053,8 +1113,11 @@ async function fixFromQa(body) {
 
 // ---------- character sheets ----------
 
-const SHEET = 'solo, character reference sheet of one person, full body, standing straight, front view, arms relaxed, neutral expression, plain white background'
-const SHEET_NEGATIVE = '2boys, 2girls, multiple boys, multiple girls, multiple views, turnaround, extra people, crowd, cropped'
+// Turnaround sheet: one character from three angles (P-H3 is told to draw the person once).
+const SHEET = 'character turnaround sheet, the same single character drawn three times side by side: front view, side view, back view, full body, standing straight, arms relaxed, neutral expression, plain white background'
+const SHEET_NEGATIVE = 'different characters, extra people, crowd, cropped, color'
+const PLATE = 'background art only, no people, wide shot, eye level, the whole place visible'
+const PLATE_NEGATIVE = 'people, person, character, 1girl, 1boy, crowd, color'
 
 async function generateSheet(body) {
   return withProject(String(body.project), async project => {
@@ -1065,11 +1128,62 @@ async function generateSheet(body) {
     const prompt = [r.prefix, SHEET, c.appearance, project.name.meta.style].filter(Boolean).join(', ')
     const loras = [...r.loras, ...(c.lora_name ? [{name:c.lora_name, strength:c.lora_strength ?? 1}] : [])].slice(0, 4)
     const {id} = await enqueueGenerate({prompt, negative:[r.negative, NO_TEXT, SHEET_NEGATIVE].filter(Boolean).join(', '),
-      width:832, height:1216, loras, count:int(body.count ?? 2, '枚数', 1, 4), steps:r.steps, cfg:r.cfg, seed:body.seed ?? null, fp8:true})
+      width:1344, height:768, loras, count:int(body.count ?? 2, '枚数', 1, 4), steps:r.steps, cfg:r.cfg, seed:body.seed ?? null, fp8:true})
     const take = {id:randomBytes(6).toString('hex'), engine:'anima', job:id, state:'queued', files:[], created:new Date().toISOString(), prompt}
     ;(project.takes['@char:' + c.id] ??= []).unshift(take)
     pending.add(project.id)
     return {id:take.id}
+  })
+}
+
+const placeId = key => createHash('sha1').update(key).digest('hex').slice(0, 10)
+
+/** Anima draws an empty plate of a place in the work's style; the first one becomes the place's reference. */
+async function enqueuePlate(project, place, count = 2) {
+  const id = placeId(place.key)
+  project.places ??= {}
+  project.places[id] ??= {key:place.key, text:place.text}
+  const r = project.render
+  const prompt = [r.prefix, PLATE, place.text, project.name.meta.style].filter(Boolean).join(', ')
+  const job = await enqueueGenerate({prompt, negative:[r.negative, NO_TEXT, PLATE_NEGATIVE].filter(Boolean).join(', '), width:1344, height:768,
+    loras:r.loras.slice(0, 4), count, steps:r.steps, cfg:r.cfg, seed:null, fp8:true})
+  const take = {id:randomBytes(6).toString('hex'), engine:'anima', job:job.id, state:'queued', files:[], created:new Date().toISOString(), prompt}
+  ;(project.takes['@place:' + id] ??= []).unshift(take)
+  pending.add(project.id)
+  return take
+}
+
+async function generatePlate(body) {
+  return withProject(String(body.project), async project => {
+    const data = await analyze(project)
+    const place = (data.places || []).find(p => placeId(p.key) === body.place)
+    if (!place) throw Error('場所が見つかりません')
+    return {id:(await enqueuePlate(project, place, int(body.count ?? 2, '枚数', 1, 4))).id}
+  })
+}
+
+/** Draws every missing turnaround sheet and place plate (the groundwork for drawing with references). */
+async function prepare(body) {
+  const id = String(body.project)
+  const project = await readProject(id)
+  const data = await analyze(project)
+  const waiting = key => (project.takes[key] || []).some(t => ['queued', 'running'].includes(t.state))
+  const sheets = project.name.characters.filter(c => !c.ref && c.appearance && !waiting('@char:' + c.id))
+  for (const c of sheets) await generateSheet({project:id, character:c.id, count:1})
+  const plates = (data.places || []).filter(p => !project.places?.[placeId(p.key)]?.ref && !waiting('@place:' + placeId(p.key)))
+  await withProject(id, async project => { for (const p of plates) await enqueuePlate(project, p, 1) })
+  return {sheets:sheets.length, plates:plates.length}
+}
+
+async function choosePlate(body) {
+  return withProject(String(body.project), async project => {
+    const place = project.places?.[body.place]
+    const file = basename(String(body.file || ''))
+    if (!place || !existsSync(join(PROJECTS, project.id, 'images', file))) throw Error('背景が見つかりません')
+    await mkdir(join(PROJECTS, project.id, 'refs'), {recursive:true})
+    place.ref = 'place-' + body.place + '-' + randomBytes(3).toString('hex') + extname(file)
+    await copyFile(join(PROJECTS, project.id, 'images', file), join(PROJECTS, project.id, 'refs', place.ref))
+    return {ok:true}
   })
 }
 
@@ -1098,7 +1212,7 @@ export function registerMangaApi(web) {
         const actions = {
           create:createProject, delete:b => deleteProject(b.project), write:startWrite, cancelWrite:b => cancelWrite(b.project),
           settings:updateSettings, character:updateCharacter, page:updatePage, panel:updatePanel,
-          generate, edit, adopt, removeTake, layers:saveLayers, letter:startLetter, inspect:startInspect, fix:fixFromQa, sheet:generateSheet,
+          generate, edit, adopt, removeTake, layers:saveLayers, letter:startLetter, inspect:startInspect, fix:fixFromQa, sheet:generateSheet, plate:generatePlate, prepare, choosePlate,
         }
         const action = actions[body.action]
         if (!action) return reply({error:'不明な操作です'}, 400)

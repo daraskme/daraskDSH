@@ -679,7 +679,7 @@ def to_lettering_csv(doc):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("name")
-    ap.add_argument("--to", required=True, choices=["krea", "panels", "page-prompt", "lettering", "sections", "compose", "anima", "layers"])
+    ap.add_argument("--to", required=True, choices=["krea", "panels", "page-prompt", "lettering", "sections", "compose", "anima", "layers", "reference"])
     ap.add_argument("--prefix", default="", help="anima: プロンプトの先頭に付ける文（品質タグなど）")
     ap.add_argument("--out", required=True, help="krea はディレクトリ、ほかはファイル（- で標準出力）")
     ap.add_argument("--width", type=int, default=None, help="画像の幅（krea の既定 864、compose の既定 1600）")
@@ -749,9 +749,27 @@ def main(argv=None):
             (out / "character_adapters.json").write_text(json.dumps(ad, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"{len(prompts)} ページを書き出した: {out}（検査エラーのあるページ {bad}）")
         return 1 if bad else 0
-    if a.to in ("anima", "layers"):
+    if a.to in ("anima", "layers", "reference"):
         import name_layers as nlay
         pages = nlay.panels(doc)
+        if a.to == "reference":
+            # 参照で描く: 三面図は人物表の全員、場所の背景は places の key ごとに 1 枚ある前提の指示文
+            style = doc.get("meta", {}).get("style") or style_line(doc)
+            cast = doc["_cast"]
+            rows = [{"page": pg["number"], "panel": p["id"], "aspect": p["aspect"],
+                     "sheets": [c["id"] for c in p["scene"]["characters"]],
+                     "place": p["scene"]["place_key"] if p["scene"]["plate"] else None,
+                     "prompt": nlay.reference_prompt(p["scene"], style, [c["id"] for c in p["scene"]["characters"]],
+                                                     p["scene"]["plate"] and bool(p["scene"]["place_key"]),
+                                                     {k: v.get("appearance", "") for k, v in cast.items()})}
+                    for pg in pages for p in pg["panels"]]
+            text = json.dumps({"places": nlay.places(doc), "panels": rows}, ensure_ascii=False, indent=1) + "\n"
+            if a.out == "-":
+                sys.stdout.write(text)
+            else:
+                Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+                Path(a.out).write_text(text, encoding="utf-8")
+            return 0
         if a.to == "layers":
             text = json.dumps({"pages": [{k: v for k, v in pg.items() if k != "panels"} | {"panels": [
                 {k: p[k] for k in ("id", "bbox", "aspect", "layers")} for p in pg["panels"]]} for pg in pages]},

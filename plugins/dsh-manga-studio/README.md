@@ -4,7 +4,7 @@
 
 - **ネーム**: [ja-manga-writing](https://github.com/daraskme/ja-manga-writing)（`skill/` に写し。版は `skill/VERSION`）の作法で、エージェント CLI（既定は Claude Code）がネームを JSON で切る。プロンプトには SKILL.md と参照（書式・企画・コマ割り・演出・台詞・人物・絵づくり・ジャンル）、漫符の語彙、コマ割りの型の要約（Manga109-s 全 87 冊の集計）を入れる。返ったネームは `manga.py`（`skill/scripts` の `manga_name` / `name_lint` / `name_export`）で割り付け・検査し、コマごとの英語プロンプトを作る
 - **コマ割り**: ページごとに型（`skill/scripts/data/layouts.json`、図と解説は `skill/assets/layouts/`）を選ぶと、そのコマ枠になる。AI も `pages[].layout` で型を指定できる
-- **絵**: コマごとにネイティブ Anima（LoRA 対応。全コマ共通の画風 LoRA と、人物ごとのキャラ LoRA）か、P-H3 の参照生成（人物の設定画から）。生成した絵は P-H3 の編集で直す（設定画も参照に渡せる）。GPU は Anima LoRA / 生成 / H3 と共通のキュー（`plugins/dsh-anima-lora-trainer/jobs.mjs`）
+- **絵**: 既定は「参照で描く」。下準備で Anima が画風を効かせて人物の三面図と場所ごとの人のいない背景を描き、コマはそれらを `<Picture k>` として P-H3 に渡し、ネームのカメラ・位置・ポーズ・表情で描かせて白黒にする（`skill/scripts/name_layers.py` の `reference_prompt` と同じ文）。ネイティブ Anima だけで描く（LoRA 対応）・P-H3 だけで描くも選べる。生成した絵は P-H3 の編集で直す（三面図も参照に渡せる）。GPU は Anima LoRA / 生成 / H3 と共通のキュー（`plugins/dsh-anima-lora-trainer/jobs.mjs`）
 - **写植・演出は AI が層で載せる**: Anima（と P-H3）には人物と背景だけを描かせ、吹き出し・台詞・書き文字（擬音）・作中の文字・効果線（集中線・スピード線・フラッシュ・縦線など）・頭上の漫符は描かせない（プロンプトから外し、ネガティブにも入れる）。顔・体そのものの表現（赤面・涙・震えなど）は絵に残す。
   - 「AI に置かせる」（ページ・コマ単位、指示も書ける）で、Claude Code がコマの絵（コマの縦横比に切り抜いたもの）を Read で見て、ネームの台詞・擬音・効果・漫符を層として置く（`api.mjs` の `letterTask`、写植の作法は `skill/references/dialogue-and-lettering.md`）。絵の無いコマはネームの配置から推定。置く前はネームからの自動配置（`skill/scripts/name_layers.py` の `auto_layers`）
   - 層はコマ画面でドラッグして動かし（吹き出しのしっぽの先も）、形・文字・スタイル・大きさ・回転を直せる。自動配置に戻せる

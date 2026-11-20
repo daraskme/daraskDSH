@@ -310,7 +310,7 @@ window.__ModuleLoader__.load({
       const {project} = data
       const [form,setForm] = React.useState(() => ({title:project.name.meta.title,style:project.name.meta.style,idea:project.brief.idea,
         genre:project.brief.genre,pages:project.brief.pages,prefix:project.render.prefix,negative:project.render.negative,
-        steps:project.render.steps,cfg:project.render.cfg,loras:project.render.loras}))
+        steps:project.render.steps,cfg:project.render.cfg,loras:project.render.loras,engine:project.render.engine || 'ref',mono:project.render.mono !== false}))
       const [loras,setLoras] = React.useState([])
       React.useEffect(() => { get('').then(d => setLoras(d.loras)).catch(() => {}) }, [])
       const set = patch => setForm(f => ({...f,...patch}))
@@ -333,6 +333,9 @@ window.__ModuleLoader__.load({
             h(Button,{type:'button',size:'sm',variant:'outline',onClick:() => set({loras:form.loras.filter((_, k) => k !== i)})},'外す'))),
           form.loras.length < 4 && h(Button,{type:'button',size:'sm',variant:'outline',className:'mg-start',onClick:() => set({loras:[...form.loras,{name:'',strength:1}]})},'LoRA を追加')),
         h('div',{className:'mg-grid'},
+          h('label',null,h('span',null,'コマの描き方（既定）'),h('select',{value:form.engine,onChange:e => set({engine:e.target.value})},
+            h('option',{value:'ref'},'参照で描く（三面図・背景 → P-H3）'),h('option',{value:'anima'},'Anima だけで描く'),h('option',{value:'ph3'},'P-H3（設定画とプロンプト）'))),
+          h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:form.mono,onChange:e => set({mono:e.target.checked})}),h('span',null,'P-H3 の絵を白黒にする')),
           h('label',null,h('span',null,'step'),h('input',{type:'number',min:1,max:100,value:form.steps,onChange:e => set({steps:e.target.value})})),
           h('label',null,h('span',null,'CFG'),h('input',{type:'number',min:1,max:20,step:0.1,value:form.cfg,onChange:e => set({cfg:e.target.value})}))),
         h('div',{className:'mg-actions'},h(Button,{type:'submit',variant:'primary',size:'sm',disabled:busy},'保存')))
@@ -381,13 +384,41 @@ window.__ModuleLoader__.load({
         h('div',{className:'mg-actions'},
           h(Button,{type:'button',size:'sm',variant:'outline',disabled:busy || !character.appearance || !!waiting,
             onClick:() => act({action:'sheet',project:project.id,character:character.id,count:2},'設定画を Anima のキューに入れました')},
-            waiting ? '設定画を描いています（' + (waiting.progress || TAKE_STATE[waiting.state]) + '）' : 'AI で設定画を描く（2 枚）'),
-          h('span',{className:'mg-meta'},'外見の英文から全身の立ち絵を描き、設定画がまだなければ 1 枚目を使います。')),
-        files.length > 0 && h('div',{className:'mg-sheet-list'},files.map(({file, take}) => h('figure',{key:file},
-          h('a',{href:fileUrl(project.id, file),target:'_blank',rel:'noopener'},h('img',{src:fileUrl(project.id, file),alt:'設定画の候補',loading:'lazy'})),
+            waiting ? '設定画を描いています（' + (waiting.progress || TAKE_STATE[waiting.state]) + '）' : 'AI で三面図を描く（2 枚）'),
+          h('span',{className:'mg-meta'},'外見の英文から、画風を効かせた三面図（正面・横・後ろ）を Anima で描き、設定画がまだなければ 1 枚目を使います。')),
+        files.length > 0 && h('div',{className:'mg-sheet-list'},files.map(({file, take}) => h('figure',{key:file,className:'is-wide'},
+          h('a',{href:fileUrl(project.id, file),target:'_blank',rel:'noopener'},h('img',{src:fileUrl(project.id, file),alt:'三面図の候補',loading:'lazy'})),
           h('figcaption',null,
             h('button',{type:'button',disabled:busy,onClick:() => act({action:'character',project:project.id,original:character.id,character:{...character,ref_from:file}},'設定画にしました')},'設定画にする'),
             h('button',{type:'button',disabled:busy,onClick:() => act({action:'removeTake',project:project.id,panel:'@char:' + character.id,take,file})},'消す'))))))
+    }
+
+    /** Places of the name: an empty plate per place, drawn by Anima in the work's style, used when drawing with references. */
+    function Places({data, act, busy}) {
+      const {project, analysis} = data
+      const list = analysis.places || []
+      return h('div',{className:'mg-card'},
+        h('h3',null,'場所（背景）'),
+        h('p',{className:'mg-meta'},'場所ごとに人のいない背景を描いておくと、「参照で描く」で同じ場所のコマに渡り、背景がそろいます。'),
+        !list.length && h('p',{className:'mg-meta'},'ネームに場所（place / place_en）がありません。'),
+        list.map(p => {
+          const info = project.places?.[p.id] || {}
+          const takes = project.takes?.['@place:' + p.id] || []
+          const files = takes.flatMap(t => t.files.map(file => ({file, take:t.id})))
+          const waiting = takes.find(t => t.state === 'queued' || t.state === 'running')
+          return h('div',{key:p.id,className:'mg-place'},
+            h('div',{className:'mg-place-ref'},info.ref ? h('img',{src:fileUrl(project.id, info.ref, 'refs'),alt:'背景'}) : h('span',null,'背景なし')),
+            h('div',{className:'mg-fields'},
+              h('strong',null,p.text),
+              h('span',{className:'mg-meta'},p.panels.length + ' コマ（' + p.panels.slice(0, 6).join('・') + (p.panels.length > 6 ? '…' : '') + '）'),
+              h('div',{className:'mg-actions'},h(Button,{size:'sm',variant:'outline',disabled:busy || !!waiting,
+                onClick:() => act({action:'plate',project:project.id,place:p.id,count:2},'背景をキューに入れました')},waiting ? '描いています（' + (waiting.progress || TAKE_STATE[waiting.state]) + '）' : '背景を描く（2 枚）')),
+              files.length > 0 && h('div',{className:'mg-sheet-list'},files.map(({file, take}) => h('figure',{key:file,className:'is-wide'},
+                h('a',{href:fileUrl(project.id, file),target:'_blank',rel:'noopener'},h('img',{src:fileUrl(project.id, file),alt:'背景の候補',loading:'lazy'})),
+                h('figcaption',null,
+                  h('button',{type:'button',disabled:busy,onClick:() => act({action:'choosePlate',project:project.id,place:p.id,file},'背景にしました')},'これを使う'),
+                  h('button',{type:'button',disabled:busy,onClick:() => act({action:'removeTake',project:project.id,panel:'@place:' + p.id,take,file})},'消す')))))))
+        }))
     }
 
     function Characters({data, act, busy}) {
@@ -422,7 +453,9 @@ window.__ModuleLoader__.load({
           analysis.pages.length > 0 && h('div',{className:'mg-toolbar'},
             h('span',{className:'mg-meta'},analysis.pages.length + ' ページ · ' + analysis.pages.reduce((n, p) => n + p.panels.length, 0) + ' コマ · 絵のないコマ ' + missing.length),
             h(Button,{size:'sm',variant:'primary',disabled:busy || !missing.length,
-              onClick:() => act({action:'generate',project:project.id,panels:missing,engine:'anima',count:2},missing.length + ' コマを Anima のキューに入れました')},'絵のないコマを全部描く'),
+              onClick:() => act({action:'generate',project:project.id,panels:missing,engine:project.render.engine || 'ref',count:2},missing.length + ' コマをキューに入れました')},'絵のないコマを全部描く'),
+            h(Button,{size:'sm',variant:'outline',disabled:busy,title:'人物の三面図と、場所ごとの背景のうち、まだ無いものを Anima で描きます（参照で描くときの下準備）',
+              onClick:() => act({action:'prepare',project:project.id}).then(r => r && alert('三面図 ' + r.sheets + ' 人・背景 ' + r.plates + ' か所をキューに入れました'))},'下準備（三面図・背景）'),
             h(CbzButton,{data})),
           h('div',{className:'mg-spreads'},spreads(analysis.pages).map((pair, i) => h('div',{key:i,className:'mg-spread'},
             pair.map(page => page ? h('button',{key:page.number,type:'button',className:'mg-thumb',onClick:() => go({page:page.number})},
@@ -432,7 +465,7 @@ window.__ModuleLoader__.load({
           h('pre',{className:'mg-plan'},project.plan || 'まだありません。'),
           h('h3',null,'ページごとの狙い'),
           h('ol',{className:'mg-purposes'},project.name.pages.map(p => h('li',{key:p.number},h('b',null,p.purpose || '（狙いなし）'),p.turn && h('div',{className:'mg-meta'},'めくり: ' + p.turn))))),
-        tab === 'cast' && h(Characters,{data,act,busy}),
+        tab === 'cast' && h(React.Fragment,null,h(Characters,{data,act,busy}),h(Places,{data,act,busy})),
         tab === 'check' && h('div',{className:'mg-card'},h('h3',null,'ネームの検査（ja-manga-writing の name_lint）'),
           h('p',{className:'mg-meta'},'点数は出しません。読み順・めくり・同じショットの連続・台詞の量・話者・漫符などの機械検査です。'),
           h(Issues,{issues:analysis.issues})),
@@ -500,7 +533,7 @@ window.__ModuleLoader__.load({
               onBlur:() => purpose !== (name.purpose || '') && act({action:'page',project:project.id,page:number,purpose})})),
             name.turn && h('p',{className:'mg-meta'},'めくり: ' + name.turn),
             h('div',{className:'mg-actions'},
-              h(Button,{size:'sm',variant:'primary',disabled:busy || !missing.length,onClick:() => act({action:'generate',project:project.id,panels:missing,engine:'anima',count:2},'キューに入れました')},
+              h(Button,{size:'sm',variant:'primary',disabled:busy || !missing.length,onClick:() => act({action:'generate',project:project.id,panels:missing,engine:project.render.engine || 'ref',count:2},'キューに入れました')},
                 '絵のないコマを描く（' + missing.length + '）'),
               h(Button,{size:'sm',variant:'outline',onClick:() => exportPage(data, page)},'PNG で保存'))),
           h('div',{className:'mg-card'},
@@ -755,7 +788,7 @@ window.__ModuleLoader__.load({
       const page = analysis.pages.find(p => p.number === number)
       const placed = page?.panels.find(p => p.id === panelId)
       const name = project.name.pages.find(p => p.number === number)?.panels.find(p => p.id === panelId)
-      const [gen,setGen] = React.useState({engine:'anima',count:2,extra:''})
+      const [gen,setGen] = React.useState({engine:project.render.engine || 'ref',count:2,extra:''})
       if (!page || !placed || !name) return h('div',{className:'mg-body'},h('p',{className:'mg-meta'},'コマが見つかりません。'),h(Button,{size:'sm',variant:'outline',onClick:() => go({page:number})},'ページへ'))
       const index = page.panels.indexOf(placed)
       const neighbor = d => page.panels[index + d]?.id
@@ -770,8 +803,10 @@ window.__ModuleLoader__.load({
           h('div',{className:'mg-card'},
             h('h3',null,'絵を作る'),
             h('div',{className:'mg-grid'},
-              h('label',null,h('span',null,'エンジン'),h('select',{value:gen.engine,onChange:e => setGen({...gen,engine:e.target.value,count:e.target.value === 'anima' ? 2 : 1})},
-                h('option',{value:'anima'},'Anima（ネイティブ・LoRA 対応）'),h('option',{value:'ph3'},'P-H3（人物の設定画から参照生成' + (withRefs ? '・' + withRefs + ' 人' : '・設定画なし') + '）'))),
+              h('label',null,h('span',null,'エンジン'),h('select',{value:gen.engine,onChange:e => setGen({...gen,engine:e.target.value,count:e.target.value === 'ph3' ? 1 : 2})},
+                h('option',{value:'ref'},'参照で描く（三面図・背景 → P-H3）' + (withRefs ? '・三面図 ' + withRefs + ' 人' : '・三面図なし')),
+                h('option',{value:'anima'},'Anima だけで描く（LoRA 対応）'),
+                h('option',{value:'ph3'},'P-H3（設定画とネームのプロンプト）'))),
               h('label',null,h('span',null,'枚数'),h('input',{type:'number',min:1,max:8,value:gen.count,onChange:e => setGen({...gen,count:e.target.value})}))),
             h('label',null,h('span',null,'今回だけ足すプロンプト（英語・任意）'),h('input',{value:gen.extra,onChange:e => setGen({...gen,extra:e.target.value})})),
             h('div',{className:'mg-actions'},h(Button,{size:'sm',variant:'primary',disabled:busy,
@@ -895,6 +930,11 @@ window.__ModuleLoader__.load({
         .mg-sheets{display:grid;gap:8px}
         .mg-sheet-list{display:flex;flex-wrap:wrap;gap:8px}
         .mg-sheet-list figure{margin:0;display:grid;gap:4px;width:96px}
+        .mg-sheet-list figure.is-wide{width:168px}
+        .mg-sheet-list figure.is-wide img{width:168px;height:96px;object-fit:contain}
+        .mg-place{display:grid;grid-template-columns:168px minmax(0,1fr);gap:12px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l3)}
+        .mg-place-ref img{width:168px;height:96px;object-fit:cover;border-radius:6px;border:1px solid var(--dsw-alias-border-l3);background:#fff}
+        .mg-place-ref>span{width:168px;height:96px;display:grid;place-items:center;border:1px dashed var(--dsw-alias-border-l3);border-radius:6px;font-size:12px;color:var(--dsw-alias-label-secondary)}
         .mg-sheet-list img{width:96px;height:140px;object-fit:cover;border-radius:6px;border:1px solid var(--dsw-alias-border-l3);background:#fff}
         .mg-sheet-list figcaption{display:flex;flex-wrap:wrap;gap:4px}
         .mg-sheet-list figcaption button{border:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base);color:inherit;font:inherit;font-size:11px;border-radius:6px;padding:1px 6px;cursor:pointer}
@@ -938,7 +978,7 @@ window.__ModuleLoader__.load({
         .mg-character{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l3)}
         .mg-fields{display:grid;gap:8px;min-width:0}
         .mg-ref{display:grid;gap:6px;align-content:start}
-        .mg-ref img{width:120px;height:160px;object-fit:cover;border-radius:6px;border:1px solid var(--dsw-alias-border-l3)}
+        .mg-ref img{width:120px;height:160px;object-fit:contain;background:#fff;border-radius:6px;border:1px solid var(--dsw-alias-border-l3)}
         .mg-ref>span{width:120px;height:160px;display:grid;place-items:center;border:1px dashed var(--dsw-alias-border-l3);border-radius:6px;font-size:12px;color:var(--dsw-alias-label-secondary)}
         .mg-file{position:relative;font-size:12px!important;cursor:pointer;text-decoration:underline}
         .mg-file input{position:absolute;inset:0;opacity:0;cursor:pointer}
