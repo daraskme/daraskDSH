@@ -111,7 +111,7 @@ async function createProject(body) {
     id, created:new Date().toISOString(),
     brief:{idea, pages:int(body.pages ?? 8, 'ページ数', 1, 60), genre:text(body.genre, 'ジャンル', 200), format, rating,
            service:SERVICES.includes(body.service) ? body.service : 'claude'},
-    render:{prefix:DEFAULT_PREFIX, negative:'', loras:[], steps:34, cfg:4.5, engine:'ref', mono:true},
+    render:{prefix:DEFAULT_PREFIX, negative:'', loras:[], steps:34, cfg:4.5, engine:'ref', mono:true, restyle:true},
     places:{},
     name:{meta:{title, format, rating, first_page_side:'left', style:text(body.style, '画風', 2000) || DEFAULT_STYLE}, characters:[], pages:[]},
     takes:{}, adopted:{}, layers:{}, task:null,
@@ -456,6 +456,50 @@ async function referencePrompt(project, placed, panel, extras) {
   return {prompt:out.filter(Boolean).join(' '), images}
 }
 
+/** Anima edit of one picture of a panel: "style" re-draws the whole picture lightly with the panel's Anima prompt
+ *  and LoRAs (the work's style over a P-H3 picture), "region" re-draws only inside the painted mask. */
+async function animaEditPanel(project, panelId, body, data) {
+  const {panel} = findPanel(project, panelId)
+  const source = (project.takes[panelId] || []).find(t => t.id === body.take)
+  const file = source?.files.find(f => f === body.file)
+  if (!file) throw Error('直す絵が見つかりません')
+  const mode = body.mode === 'region' ? 'region' : 'style'
+  const r = project.render
+  data ??= await analyze(project)
+  const placed = data.pages.flatMap(page => page.panels).find(p => p.id === panelId)
+  const cast = new Map(project.name.characters.map(c => [c.id, c]))
+  const inPanel = (panel.characters || []).map(c => cast.get(c.id)).filter(Boolean)
+  const loras = [...r.loras, ...inPanel.filter(c => c.lora_name).map(c => ({name:c.lora_name, strength:c.lora_strength ?? 1}))]
+  const unique = [...new Map(loras.map(l => [l.name, l])).values()].slice(0, 4)
+  let prompt, mask
+  if (mode === 'region') {
+    const told = text(body.prompt, '描き直す内容', 1500, true)
+    prompt = fitAnima(r.prefix, project.name.meta.style, [told])
+    if (!body.mask) throw Error('描き直す範囲を塗ってください')
+    mask = await storePicture(Buffer.from(String(body.mask), 'base64'), '.png')
+  } else {
+    prompt = fitAnima(r.prefix, placed?.anima || '', [panel.extra_prompt, text(body.prompt, '追加のプロンプト', 1000)])
+  }
+  const denoise = Number(body.denoise ?? (mode === 'region' ? 0.9 : 0.4))
+  const {id} = await enqueueGenerate({prompt, negative:[r.negative, placed?.avoid, NO_TEXT, 'color'].filter(Boolean).join(', '),
+    image:await uploadFile(join(PROJECTS, project.id, 'images', file)), ...(mask ? {mask} : {}), denoise,
+    mask_grow:int(body.grow ?? 8, 'マスクの広げ', 0, 64), mask_feather:int(body.feather ?? 12, 'マスクのぼかし', 0, 64),
+    width:0, height:0, loras:unique, count:int(body.count ?? 2, '枚数', 1, 8), steps:r.steps, cfg:r.cfg, seed:body.seed ?? null, fp8:true})
+  const take = {id:randomBytes(6).toString('hex'), engine:'anima-edit', mode, job:id, state:'queued', files:[], created:new Date().toISOString(),
+                prompt, denoise, from:{take:source.id, file}, ...(body.instruction ? {instruction:String(body.instruction).slice(0, 300)} : {}),
+                ...(body.autoAdopt ? {autoAdopt:true} : {})}
+  ;(project.takes[panelId] ??= []).unshift(take)
+  pending.add(project.id)
+  return take
+}
+
+async function animaEdit(body) {
+  return withProject(String(body.project), async project => {
+    const take = await animaEditPanel(project, String(body.panel), body)
+    return {id:take.id}
+  })
+}
+
 async function generate(body) {
   return withProject(String(body.project), async project => {
     const data = await analyze(project)
@@ -550,6 +594,14 @@ async function settleTakes(project) {
       } else if (take.files.length && (!project.adopted[panelId] || take.autoAdopt)) {
         // The first picture of a panel is adopted; so is a fix the inspection asked for.
         project.adopted[panelId] = {take:take.id, file:take.files[0]}
+      }
+      // "Draw with references" then Anima over it: the work's style and LoRAs back on the P-H3 picture.
+      if (take.engine === 'ref' && take.files.length && project.render.restyle !== false && !panelId.startsWith('@')) {
+        try {
+          const follow = await animaEditPanel(project, panelId, {take:take.id, file:take.files[0], mode:'style', count:1,
+            autoAdopt:project.adopted[panelId]?.take === take.id})
+          follow.restyleOf = take.id
+        } catch (error) { take.message = 'Anima の画風そろえを入れられませんでした: ' + error.message }
       }
     } else {
       take.state = job.state === 'cancelled' ? 'cancelled' : 'error'
@@ -651,6 +703,7 @@ async function updateSettings(body) {
     if ('negative' in body) r.negative = text(body.negative, 'ネガティブプロンプト', 2000)
     if ('engine' in body) r.engine = ['ref', 'anima', 'ph3'].includes(body.engine) ? body.engine : 'ref'
     if ('mono' in body) r.mono = body.mono !== false
+    if ('restyle' in body) r.restyle = body.restyle !== false
     if ('steps' in body) r.steps = int(body.steps, 'step 数', 1, 100)
     if ('cfg' in body) { const v = Number(body.cfg); if (!(v >= 1 && v <= 20)) throw Error('CFG は 1〜20 です'); r.cfg = v }
     if ('loras' in body) {
@@ -1088,7 +1141,9 @@ async function continueInspection(id) {
     const loop = project.qaLoop
     if (!loop?.waiting?.length) return
     const takes = Object.values(project.takes).flat().filter(t => loop.waiting.includes(t.id))
-    if (takes.some(t => ['queued', 'running'].includes(t.state))) return
+    // a fix drawn with references is followed by Anima's style pass: wait for that too
+    const follows = Object.values(project.takes).flat().filter(t => t.restyleOf && loop.waiting.includes(t.restyleOf))
+    if ([...takes, ...follows].some(t => ['queued', 'running'].includes(t.state))) return
     loop.waiting = []
     if (!takes.some(t => t.state === 'done')) {   // nothing new to look at
       project.task = {...project.task, message:(project.task?.message || '') + '\n自動の直しが失敗しました: ' +
@@ -1212,7 +1267,7 @@ export function registerMangaApi(web) {
         const actions = {
           create:createProject, delete:b => deleteProject(b.project), write:startWrite, cancelWrite:b => cancelWrite(b.project),
           settings:updateSettings, character:updateCharacter, page:updatePage, panel:updatePanel,
-          generate, edit, adopt, removeTake, layers:saveLayers, letter:startLetter, inspect:startInspect, fix:fixFromQa, sheet:generateSheet, plate:generatePlate, prepare, choosePlate,
+          generate, edit, adopt, removeTake, layers:saveLayers, letter:startLetter, inspect:startInspect, fix:fixFromQa, sheet:generateSheet, plate:generatePlate, prepare, choosePlate, animaEdit,
         }
         const action = actions[body.action]
         if (!action) return reply({error:'不明な操作です'}, 400)

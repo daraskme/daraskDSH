@@ -310,7 +310,7 @@ window.__ModuleLoader__.load({
       const {project} = data
       const [form,setForm] = React.useState(() => ({title:project.name.meta.title,style:project.name.meta.style,idea:project.brief.idea,
         genre:project.brief.genre,pages:project.brief.pages,prefix:project.render.prefix,negative:project.render.negative,
-        steps:project.render.steps,cfg:project.render.cfg,loras:project.render.loras,engine:project.render.engine || 'ref',mono:project.render.mono !== false}))
+        steps:project.render.steps,cfg:project.render.cfg,loras:project.render.loras,engine:project.render.engine || 'ref',mono:project.render.mono !== false,restyle:project.render.restyle !== false}))
       const [loras,setLoras] = React.useState([])
       React.useEffect(() => { get('').then(d => setLoras(d.loras)).catch(() => {}) }, [])
       const set = patch => setForm(f => ({...f,...patch}))
@@ -336,6 +336,7 @@ window.__ModuleLoader__.load({
           h('label',null,h('span',null,'コマの描き方（既定）'),h('select',{value:form.engine,onChange:e => set({engine:e.target.value})},
             h('option',{value:'ref'},'参照で描く（三面図・背景 → P-H3）'),h('option',{value:'anima'},'Anima だけで描く'),h('option',{value:'ph3'},'P-H3（設定画とプロンプト）'))),
           h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:form.mono,onChange:e => set({mono:e.target.checked})}),h('span',null,'P-H3 の絵を白黒にする')),
+          h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:form.restyle,onChange:e => set({restyle:e.target.checked})}),h('span',null,'参照で描いた後、Anima で画風をそろえる')),
           h('label',null,h('span',null,'step'),h('input',{type:'number',min:1,max:100,value:form.steps,onChange:e => set({steps:e.target.value})})),
           h('label',null,h('span',null,'CFG'),h('input',{type:'number',min:1,max:20,step:0.1,value:form.cfg,onChange:e => set({cfg:e.target.value})}))),
         h('div',{className:'mg-actions'},h(Button,{type:'submit',variant:'primary',size:'sm',disabled:busy},'保存')))
@@ -600,6 +601,7 @@ window.__ModuleLoader__.load({
       const takes = project.takes?.[panelId] || []
       const adopted = project.adopted?.[panelId]
       const [fixing,setFixing] = React.useState(null)  // {take, file}
+      const [animaFix,setAnimaFix] = React.useState(null)
       const [instruction,setInstruction] = React.useState('')
       const [refs,setRefs] = React.useState(true)
       const {panel} = (() => { for (const page of project.name.pages) for (const p of page.panels) if (p.id === panelId) return {panel:p}; return {} })()
@@ -607,7 +609,8 @@ window.__ModuleLoader__.load({
       if (!takes.length) return h('p',{className:'mg-meta'},'まだ絵がありません。')
       return h('div',{className:'mg-takes'},
         takes.map(take => h('div',{key:take.id,className:'mg-take'},
-          h('div',{className:'mg-meta'},({anima:'Anima',ph3:'P-H3 参照','ph3-edit':'P-H3 修正'}[take.engine] || take.engine) + ' · ' +
+          h('div',{className:'mg-meta'},({anima:'Anima',ph3:'P-H3 参照','ph3-edit':'P-H3 修正',ref:'参照で描く',
+              'anima-edit':take.mode === 'region' ? 'Anima 範囲の描き直し' : take.restyleOf ? 'Anima 画風そろえ（自動）' : 'Anima 画風そろえ'}[take.engine] || take.engine) + ' · ' +
             (take.state === 'done' ? new Date(take.created).toLocaleString() : take.progress || TAKE_STATE[take.state]) + (take.instruction ? ' · 「' + take.instruction + '」' : '')),
           take.message && h('p',{className:'mg-error'},take.message),
           h('div',{className:'mg-files'},take.files.map(file => h('figure',{key:file,className:adopted?.file === file ? 'is-adopted' : ''},
@@ -615,6 +618,7 @@ window.__ModuleLoader__.load({
             h('figcaption',null,
               adopted?.file === file ? h('b',null,'採用中') : h('button',{type:'button',disabled:busy,onClick:() => act({action:'adopt',project:project.id,panel:panelId,take:take.id,file})},'採用'),
               h('button',{type:'button',disabled:busy,onClick:() => { setFixing({take:take.id,file}); setInstruction('') }},'P-H3 で直す'),
+              h('button',{type:'button',disabled:busy,onClick:() => setAnimaFix(animaFix?.file === file ? null : {take:take.id,file})},'Anima で直す'),
               cast.length > 0 && h('select',{value:'','aria-label':'設定画にする',disabled:busy,onChange:e => e.target.value &&
                   act({action:'character',project:project.id,original:e.target.value,character:{...cast.find(c => c.id === e.target.value),ref_from:file}},'設定画にしました')},
                 h('option',{value:''},'設定画にする…'),cast.map(c => h('option',{key:c.id,value:c.id},c.name || c.id))),
@@ -630,6 +634,7 @@ window.__ModuleLoader__.load({
                   if (await act({action:'edit',project:project.id,panel:panelId,take:take.id,file,instruction,refs},'P-H3 の修正をキューに入れました')) setFixing(null)
                 }},'修正する'),
                 h(Button,{size:'sm',variant:'outline',onClick:() => setFixing(null)},'やめる')))))),
+          animaFix?.take === take.id && h(AnimaEditor,{key:animaFix.file,data,panelId,take:take.id,file:animaFix.file,act,busy,done:() => setAnimaFix(null)}),
           (take.state === 'queued' || take.state === 'running' || !take.files.length) &&
             h('button',{type:'button',className:'mg-link',disabled:busy,onClick:() => act({action:'removeTake',project:project.id,panel:panelId,take:take.id})},
               take.state === 'queued' || take.state === 'running' ? '取り消す' : '消す'))))
@@ -781,6 +786,79 @@ window.__ModuleLoader__.load({
           h('div',{className:'mg-actions mg-wide'},
             h(Button,{size:'sm',variant:'primary',disabled:busy || !dirty,onClick:() => save()},'反映して保存'),
             h(Button,{size:'sm',variant:'outline',disabled:busy,onClick:() => { const next = layers.filter((_, k) => k !== sel); setSel(-1); save(next) }},'この層を消す'))))
+    }
+
+    /** Anima edit of a picture: match the work's style over the whole picture, or redraw a painted region. */
+    function AnimaEditor({data, panelId, take, file, act, busy, done}) {
+      const {project, analysis} = data
+      const [mode,setMode] = React.useState('style')
+      const [prompt,setPrompt] = React.useState('')
+      const [denoise,setDenoise] = React.useState(0.4)
+      const [brush,setBrush] = React.useState(48)
+      const [painted,setPainted] = React.useState(false)
+      const canvas = React.useRef(null), img = React.useRef(null), drawing = React.useRef(false)
+      const panel = project.name.pages.flatMap(p => p.panels).find(p => p.id === panelId) || {}
+      const cast = new Map(project.name.characters.map(c => [c.id, c]))
+      React.useEffect(() => { setDenoise(mode === 'region' ? 0.9 : 0.4) }, [mode])
+      const starter = () => (panel.characters || []).map(c => {
+        const x = cast.get(c.id) || {}
+        return [x.appearance, c.pose, c.expression].filter(Boolean).join(', ')
+      }).join('. ')
+      const fit = () => {
+        const c = canvas.current, i = img.current
+        if (c && i && i.naturalWidth && c.width !== i.naturalWidth) { c.width = i.naturalWidth; c.height = i.naturalHeight; setPainted(false) }
+      }
+      React.useEffect(() => { if (img.current?.complete) fit() })   // a cached picture fires load before the handler
+      const last = React.useRef(null)
+      const paint = (e, start) => {
+        fit()
+        const c = canvas.current, rect = c.getBoundingClientRect(), g = c.getContext('2d')
+        const x = (e.clientX - rect.left) * c.width / rect.width, y = (e.clientY - rect.top) * c.height / rect.height
+        const erase = e.buttons === 2 || e.button === 2 || e.altKey
+        // one opaque stroke per drag on the canvas, shown half transparent (CSS); the mask is any painted pixel
+        g.globalCompositeOperation = erase ? 'destination-out' : 'source-over'
+        g.strokeStyle = g.fillStyle = 'rgb(255,40,40)'
+        g.lineWidth = brush * c.width / rect.width; g.lineCap = g.lineJoin = 'round'
+        const from = start || !last.current ? [x, y] : last.current
+        g.beginPath(); g.moveTo(from[0], from[1]); g.lineTo(x + 0.01, y); g.stroke()
+        last.current = [x, y]
+        setPainted(true)
+      }
+      function maskData() {
+        const c = canvas.current, out = document.createElement('canvas')
+        out.width = c.width; out.height = c.height
+        const g = out.getContext('2d'), src = c.getContext('2d').getImageData(0, 0, c.width, c.height)
+        const dst = g.createImageData(c.width, c.height)
+        for (let k = 0; k < src.data.length; k += 4) { const v = src.data[k + 3] > 0 ? 255 : 0; dst.data[k] = dst.data[k + 1] = dst.data[k + 2] = v; dst.data[k + 3] = 255 }
+        g.putImageData(dst, 0, 0)
+        return out.toDataURL('image/png').split(',')[1]
+      }
+      async function submit() {
+        const body = {action:'animaEdit',project:project.id,panel:panelId,take,file,mode,denoise:Number(denoise),count:2,prompt}
+        if (mode === 'region') body.mask = maskData()
+        if (await act(body, mode === 'region' ? '範囲の描き直しをキューに入れました' : '画風そろえをキューに入れました')) done()
+      }
+      return h('div',{className:'mg-fix mg-anima-edit'},
+        h('div',{className:'mg-row'},
+          h('label',{className:'mg-check'},h('input',{type:'radio',name:'am-' + file,checked:mode === 'style',onChange:() => setMode('style')}),h('span',null,'画風をそろえる（全体を軽く描き直す）')),
+          h('label',{className:'mg-check'},h('input',{type:'radio',name:'am-' + file,checked:mode === 'region',onChange:() => { setMode('region'); if (!prompt) setPrompt(starter()) }}),h('span',null,'範囲を描き直す'))),
+        mode === 'region' && h(React.Fragment,null,
+          h('div',{className:'mg-paint'},
+            h('img',{ref:img,src:fileUrl(project.id, file),alt:'',onLoad:fit}),
+            h('canvas',{ref:canvas,onPointerDown:e => { drawing.current = true; e.currentTarget.setPointerCapture(e.pointerId); paint(e, true) },
+              onPointerMove:e => drawing.current && paint(e),onPointerUp:e => { if (drawing.current) paint(e); drawing.current = false; last.current = null },onContextMenu:e => e.preventDefault()})),
+          h('div',{className:'mg-row'},
+            h('label',null,h('span',null,'筆の太さ ' + brush),h('input',{type:'range',min:8,max:200,value:brush,onChange:e => setBrush(Number(e.target.value))})),
+            h(Button,{type:'button',size:'sm',variant:'outline',onClick:() => { const c = canvas.current; c.getContext('2d').clearRect(0, 0, c.width, c.height); setPainted(false) }},'塗りを消す')),
+          h('p',{className:'mg-meta'},'描き直す所を塗る（右ドラッグか Alt で消しゴム）。人物を描き直すときは体全体を囲むように塗ると、塗りの端で切れません。')),
+        h('label',null,h('span',null,mode === 'region' ? '描き直す内容（英語。人物の外見・ポーズ・表情を具体的に）' : '足すプロンプト（英語・任意）'),
+          h('textarea',{rows:mode === 'region' ? 3 : 2,value:prompt,onChange:e => setPrompt(e.target.value),
+            placeholder:mode === 'region' ? 'he bows deeply from the waist in apology, head lowered, eyes squeezed shut, arms straight down at his sides' : '例: shaded eyes, intense stare'})),
+        h('label',null,h('span',null,'描き直しの強さ ' + Number(denoise).toFixed(2) + (mode === 'region' ? '（0.8〜1.0: 形から変える）' : '（0.3〜0.5: 構図を保って画風だけ）')),
+          h('input',{type:'range',min:0.1,max:1,step:0.05,value:denoise,onChange:e => setDenoise(e.target.value)})),
+        h('div',{className:'mg-actions'},
+          h(Button,{size:'sm',variant:'primary',disabled:busy || (mode === 'region' && (!painted || !prompt.trim())),onClick:submit},'Anima で直す（2 枚）'),
+          h(Button,{size:'sm',variant:'outline',onClick:done},'やめる')))
     }
 
     function PanelView({data, number, panelId, act, busy, messages, go}) {
@@ -975,6 +1053,10 @@ window.__ModuleLoader__.load({
         .mg-files figcaption button{border:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base);color:inherit;font:inherit;border-radius:6px;padding:2px 8px;cursor:pointer}
         .mg-files figcaption select{width:auto;padding:2px 4px;font-size:12px}
         .mg-fix{grid-column:1/-1;display:grid;gap:6px}
+        .mg-anima-edit{padding:10px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-base)}
+        .mg-paint{position:relative;width:100%;touch-action:none;user-select:none}
+        .mg-paint img{display:block;width:100%;height:auto;border-radius:4px}
+        .mg-paint canvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;opacity:.45}
         .mg-character{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l3)}
         .mg-fields{display:grid;gap:8px;min-width:0}
         .mg-ref{display:grid;gap:6px;align-content:start}
