@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-comfyui
+      name: ./index.mjs

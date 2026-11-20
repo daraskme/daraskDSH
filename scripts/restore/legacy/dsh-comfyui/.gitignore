@@ -1,0 +1,13 @@
+node_modules/
+__pycache__/
+*.tgz
+.env
+.venv/
+*.safetensors
+/models/
+/loras
+/refmods/
+/characters/
+/gemma_candidates
+/custom_nodes/
+/workflows

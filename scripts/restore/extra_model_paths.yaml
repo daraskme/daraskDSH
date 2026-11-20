@@ -1,0 +1,26 @@
+dsh:
+  base_path: ../../plugins/dsh-comfyui/models
+  is_default: true
+  audio_encoders: audio_encoders
+  background_removal: background_removal
+  checkpoints: checkpoints
+  clip_vision: clip_vision
+  configs: configs
+  controlnet: controlnet
+  detection: detection
+  diffusers: diffusers
+  diffusion_models: diffusion_models
+  embeddings: embeddings
+  frame_interpolation: frame_interpolation
+  gligen: gligen
+  hypernetworks: hypernetworks
+  latent_upscale_models: latent_upscale_models
+  loras: loras
+  model_patches: model_patches
+  optical_flow: optical_flow
+  photomaker: photomaker
+  style_models: style_models
+  text_encoders: text_encoders
+  upscale_models: upscale_models
+  vae: vae
+  vae_approx: vae_approx

@@ -98,6 +98,10 @@ dsh ask openai --model gpt-6.2-astra --effort high '設計をレビューして'
 
 本番のユーザーサービスは `darask-dsh.service` と `darask-dsh-tunnel.service` です。Web の入口はループバックの 8789 番で、HTTP と WebSocket の双方で Cloudflare の署名と対象アプリ、期限を検証します。ローカル開発では `npm ci` と `uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt` で依存関係を復元できます。
 
+## バックアップから復元
+
+作業フォルダーを失った場合は、[復元手順](docs/restore.md)に従って GitHub のクローンから環境を組み直せます。モデル、LoRA、漫画プロジェクト、ワークフロー、設定と履歴は、指定の非公開 Hugging Face リポジトリから取得します。
+
 ## Anima LoRA 学習
 
 ### Anima Base v1.0 のネイティブ LoRA 学習
