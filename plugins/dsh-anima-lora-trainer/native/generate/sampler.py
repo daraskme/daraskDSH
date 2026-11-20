@@ -111,3 +111,42 @@ def sample(weights, cond, uncond, seed, steps=34, cfg=4.5, height=1216, width=83
     x = er_sde(cfg_denoiser(weights, cond, uncond, cfg, fp8), x, sigmas, seed, on_step=on_step)
     x = x / (1.0 - sigmas[-1].view(1, 1, 1, 1, 1))
     return latent_out(x.to(torch.float32))
+
+
+def latent_in(latent):
+    """Wan 2.1 process_in: the VAE mean -> the sampler's normalized latent."""
+    mean = torch.tensor(LATENT_MEAN).view(1, 16, 1, 1, 1).to(latent.device, latent.dtype)
+    std = torch.tensor(LATENT_STD).view(1, 16, 1, 1, 1).to(latent.device, latent.dtype)
+    return (latent - mean) * 1.0 / std
+
+
+def denoise_sigmas(steps, denoise):
+    """KSampler with denoise < 1: the schedule of int(steps / denoise) steps, keeping its last steps + 1 sigmas."""
+    if denoise > 0.9999:
+        return simple_sigmas(steps)
+    return simple_sigmas(int(steps / denoise))[-(steps + 1):]
+
+
+def sample_image(weights, cond, uncond, seed, image_latent, steps=34, cfg=4.5, denoise=0.6, mask=None, on_step=None, fp8=False):
+    """Image-to-image latent (KSampler with denoise on a VAEEncode latent), optionally only inside `mask`
+    ([1, 1, 1, h, w] in [0, 1] at latent size, 1 = redraw) as ComfyUI's KSamplerX0Inpaint does with SetLatentNoiseMask:
+    before each model call the unmasked part is reset to the source latent at the current noise level, and the
+    model's denoised output keeps the source latent there. Returns the un-normalized latent."""
+    sigmas = denoise_sigmas(steps, denoise).cuda()
+    latent = latent_in(image_latent.cuda().float())
+    _, _, _, h, w = latent.shape
+    noise = initial_noise(seed, h * 8, w * 8).cuda()
+    x = sigmas[0].view(1, 1, 1, 1, 1) * (1.0 * noise) + (1.0 - sigmas[0].view(1, 1, 1, 1, 1)) * latent
+    inner = cfg_denoiser(weights, cond, uncond, cfg, fp8)
+    if mask is None:
+        model = inner
+    else:
+        keep = 1.0 - mask
+
+        def model(x, sigma):
+            s = sigma.view(-1, 1, 1, 1, 1)
+            x = x * mask + (s * noise + (1.0 - s) * latent) * keep
+            return inner(x, sigma) * mask + latent * keep
+    x = er_sde(model, x, sigmas, seed, on_step=on_step)
+    x = x / (1.0 - sigmas[-1].view(1, 1, 1, 1, 1))
+    return latent_out(x.to(torch.float32))

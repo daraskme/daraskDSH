@@ -83,7 +83,8 @@ async function datasetFile(body) {
 async function pruneUploads() {
   const limit = Date.now() - UPLOAD_DAYS * 86400000
   const keep = new Set(jobs.filter(job => ['queued', 'running'].includes(job.state))
-    .flatMap(job => [job.request.first_frame, job.request.last_frame, ...(job.request.references || []), ...(job.request.images || [])]))
+    .flatMap(job => [job.request.first_frame, job.request.last_frame, job.request.image, job.request.mask,
+                     ...(job.request.references || []), ...(job.request.images || [])]))
   for (const name of await readdir(UPLOADS).catch(() => [])) {
     const path = join(UPLOADS, name)
     if (!keep.has(path) && (await stat(path).catch(() => null))?.mtimeMs < limit) await rm(path, {force:true})
@@ -215,7 +216,13 @@ export async function enqueueGenerate(body) {
   const negative = typeof body.negative === 'string' ? body.negative.trim() : ''
   if (!prompt) throw Error('プロンプトを入力してください')
   if (prompt.length > 4000 || negative.length > 4000) throw Error('プロンプトは 4000 文字以内にしてください')
-  const width = number(body.width, '幅', 256, 2048), height = number(body.height, '高さ', 256, 2048)
+  // Editing (img2img / redraw inside a mask): the picture to edit and, optionally, the mask (white = redraw).
+  // 0 x 0 keeps the picture's aspect at about 1.2 MP (generate.py).
+  const edit = body.image ? {image:picture(body.image, '編集する画像'), denoise:number(body.denoise ?? 0.6, '描き直しの強さ', 0.05, 1, false),
+    ...(body.mask ? {mask:picture(body.mask, 'マスク'), mask_grow:number(body.mask_grow ?? 8, 'マスクの広げ', 0, 64),
+                     mask_feather:number(body.mask_feather ?? 12, 'マスクのぼかし', 0, 64)} : {})} : null
+  const auto = edit && !Number(body.width) && !Number(body.height)
+  const width = auto ? 0 : number(body.width, '幅', 256, 2048), height = auto ? 0 : number(body.height, '高さ', 256, 2048)
   if (width % 16 || height % 16) throw Error('幅と高さは 16 の倍数にしてください')
   const loras = await chosenLoras(body, 'anima')
   const seed = body.seed === null || body.seed === undefined || body.seed === '' ? randomInt(0, 2 ** 32)
@@ -225,7 +232,7 @@ export async function enqueueGenerate(body) {
   await mkdir(dir, {recursive:true})
   const request = {kind:'generate', prompt, negative, seed, count:number(body.count, '枚数', 1, 16),
                    steps:number(body.steps, 'step 数', 1, 100), cfg:number(body.cfg, 'CFG', 1, 20, false),
-                   width, height, loras, fp8:body.fp8 !== false, output_dir:join(GENERATED, id)}
+                   width, height, loras, fp8:body.fp8 !== false, ...(edit || {}), output_dir:join(GENERATED, id)}
   await writeFile(join(dir, 'request.json'), JSON.stringify(request, null, 1))
   jobs.push({id, dir, request, state:'queued'})
   await save()

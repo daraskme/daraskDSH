@@ -1,4 +1,5 @@
-// Anima image decode: the Wan 2.1 (qwen_image_vae) decoder for a single frame, as ComfyUI's VAEDecode runs it:
+// Anima image decode and encode: the Wan 2.1 (qwen_image_vae) decoder/encoder for a single frame, as ComfyUI's
+// VAEDecode / VAEEncode run it. Decode:
 // T = 1, so no feature cache, every causal 3D conv keeps only its last temporal slice ("causal_zero"), and the
 // upsample3d time convs are skipped. Weights in the VAE dtype (ComfyUI: BF16, bit-exact), output [H, W, 3]
 // in [0, 1] FP32. Written from ComfyUI's comfy/ldm/wan/vae.py, comfy/sd.py and diffusionmodules/model.py.
@@ -86,8 +87,36 @@ Tensor decode(const Weights& w, const Tensor& z) {
     return image.squeeze(0).squeeze(1).permute({1, 2, 0}).contiguous();
 }
 
+// Encode, one frame: ComfyUI's WanVAE.encode with t = 1 runs the encoder without a feature cache, so every causal
+// conv keeps its last temporal slice and the downsample3d time convs are skipped (as the decoder's upsample3d).
+Tensor downsample(const Weights& w, const std::string& p, const Tensor& x) {
+    auto h = at::constant_pad_nd(x.squeeze(2), {0, 1, 0, 1}, 0.0);  // ZeroPad2d((0, 1, 0, 1))
+    return at::conv2d(h, w.at(p + ".resample.1.weight"), w.at(p + ".resample.1.bias"), {2, 2}).unsqueeze(2);
+}
+
+// image: [H, W, 3] FP32 in [0, 1] (H, W multiples of 8) -> mu [1, 16, 1, H/8, W/8] FP32 (not yet normalized)
+Tensor encode(const Weights& w, const Tensor& image) {
+    TORCH_CHECK(image.dim() == 3 && image.size(2) == 3, "dsh_anima_gen.vae_encode: image must be [H, W, 3]");
+    const auto dtype = w.at("encoder.conv1.weight").scalar_type();
+    auto x = image.permute({2, 0, 1}).unsqueeze(0).unsqueeze(2).mul(2.0).sub(1.0).to(dtype);  // process_input
+    x = causal_conv(w, "encoder.conv1", x);
+    for (int i = 0;; ++i) {
+        const auto p = "encoder.downsamples." + std::to_string(i);
+        if (has(w, p + ".residual.0.gamma")) x = residual(w, p, x);
+        else if (has(w, p + ".resample.1.weight")) x = downsample(w, p, x);
+        else break;
+    }
+    x = residual(w, "encoder.middle.0", x);
+    x = attention(w, "encoder.middle.1", x);
+    x = residual(w, "encoder.middle.2", x);
+    x = causal_conv(w, "encoder.head.2", at::silu(rms(w, "encoder.head.0", x)));
+    x = causal_conv(w, "conv1", x);
+    return x.narrow(1, 0, x.size(1) / 2).to(at::kFloat);  // mu
+}
+
 }  // namespace
 
 TORCH_LIBRARY_FRAGMENT(dsh_anima_gen, m) {
     m.def("vae_decode(Dict(str, Tensor) weights, Tensor z) -> Tensor", &decode);
+    m.def("vae_encode(Dict(str, Tensor) weights, Tensor image) -> Tensor", &encode);
 }
