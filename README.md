@@ -96,7 +96,13 @@ dsh ask openai --model gpt-6.2-astra --effort high '設計をレビューして'
 
 サイドバーには残量が最も少ない枠と次のリセット日時（日本時間）が表示されます。各行にポインターを合わせるか、キーボードでフォーカスすると、取得できた他の枠も確認できます。「約」は CLI が残り時間を丸めて返す場合に表示されます。検索には OSS の DDGS と lxml を使い、X は Yahoo! リアルタイム検索の公開投稿と検索エンジンのインデックスを参照します。
 
-本番のユーザーサービスは `darask-dsh.service` と `darask-dsh-tunnel.service` です。Web の入口はループバックの 8789 番で、HTTP と WebSocket の双方で Cloudflare の署名と対象アプリ、期限を検証します。ローカル開発では `npm ci` と `uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt` で依存関係を復元できます。
+本番のユーザーサービスは `darask-dsh.service` と `darask-dsh-tunnel.service` です。Web の入口はループバックの 8789 番で、HTTP と WebSocket の双方で Cloudflare の署名と対象アプリ、期限を検証します。ローカル開発では `npm --prefix harness ci` と `uv venv harness/.venv && uv pip install --python harness/.venv/bin/python -r harness/requirements.txt` で依存関係を復元できます。
+
+## フォルダー構成
+
+- [harness](harness/) に DeepSeek Harness 本体、起動設定、依存関係、Web UI、テストがあります。
+- [plugins](plugins/) は漫画生成、画像生成、動画生成、画像編集、LoRA 学習などの拡張機能です。
+- [datasets](datasets/) に共有データセットとアップロード素材、[models](models/) にモデルと LoRA、[outputs](outputs/) に生成・編集・書き出し結果があります。
 
 ## バックアップから復元
 
@@ -125,10 +131,10 @@ dsh ask openai --model gpt-6.2-astra --effort high '設計をレビューして'
   --cache-dir ./.anima-cache
 ```
 
-通常の学習は C++/LibTorch と CUDA で行い、Rust が画像・トークナイザー・safetensors を扱います。出力には新しいファイル名を指定します。ComfyUI からすぐ選びたい場合は `--output` に `plugins/dsh-comfyui/loras/trained/my-anima.safetensors` を指定してください。
+通常の学習は C++/LibTorch と CUDA で行い、Rust が画像・トークナイザー・safetensors を扱います。出力には新しいファイル名を指定します。ComfyUI からすぐ選びたい場合は `--output` に `models/loras/trained/my-anima.safetensors` を指定してください。
 
 `--epochs` では素材一巡を単位に期間を指定できます。約 572px 以下の同じサイズの画像は 2 枚ずつまとめて学習し、その step は学習率を 2 倍にします（`--learning-rate` は 1 枚あたりの値）。512px では 1 枚あたり約 10% 速くなります。モジュールごとの学習率は `--self-attn-lr`・`--cross-attn-lr`・`--mlp-lr`・`--adaln-lr` で指定し、0 にしたモジュールは学習しません（例: MLP のみの画風 LoRA は `--self-attn-lr 0 --cross-attn-lr 0 --adaln-lr 0`）。`--warmup 0.06 --lr-cycles 4` でウォームアップ付きのリスタート cosine、`--timestep-scale 1.2` で timestep 分布、`--weight-decay 0` で減衰を変えられます。`--backend compile` で PyTorch Inductor による学習も選べます。解像度と学習回数ごとの選び方は [実測結果](docs/anima-native-benchmarks.md) を参照してください。[実装計画 v2](docs/anima-native-plan-v2.md)・[Astra 6.2 レビュー](docs/anima-native-astra-review.md)・[v1 計画](docs/anima-native-plan.md)・[Opus 5.5 レビュー](docs/anima-native-opus-review.md)
 
-学習エンジンとチャット用ツールは DSH プラグイン [`plugins/dsh-anima-lora-trainer`](plugins/dsh-anima-lora-trainer/README.md) にまとめています。
+学習エンジンとチャット用ツールは DSH プラグイン [`plugins/lora-training`](plugins/lora-training/README.md) にまとめています。
 
-DSH の ComfyUI 連携（サイドバーの ComfyUI、`comfyui_*` ツール、`/comfy/` の中継）と ComfyUI-Folder-LoRA ノードは削除しました。学習済み LoRA とモデルは `plugins/dsh-comfyui/` に残り、ローカルの ComfyUI（`.runtime/ComfyUI`、`darask-comfyui.service`）からは引き続き読み込めます。MiniMax H3 の動画生成と P-H3 の画像生成・編集はネイティブ実装に移行する予定です。
+DSH の ComfyUI 連携（サイドバーの ComfyUI、`comfyui_*` ツール、`/comfy/` の中継）と ComfyUI-Folder-LoRA ノードは削除しました。学習済み LoRA とモデルは `models/` にあり、ローカルの ComfyUI（`.runtime/ComfyUI`、`darask-comfyui.service`）からは引き続き読み込めます。MiniMax H3 の動画生成と P-H3 の画像生成・編集はネイティブ実装に移行する予定です。

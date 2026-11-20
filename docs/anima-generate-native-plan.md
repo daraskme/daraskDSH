@@ -1,6 +1,6 @@
 # Anima Base v1.0 のネイティブ画像生成計画
 
-方針: **速度 ≥ 品質**。ComfyUI のコードを実行時に使わない。LoRA 学習のネイティブ実装（`plugins/dsh-anima-lora-trainer`）の部品をできるだけ使い回し、新しい抽象化や設定項目は、測定で必要と分かるまで追加しない。DSH の左サイドバーに「Anima 生成」を置く。
+方針: **速度 ≥ 品質**。ComfyUI のコードを実行時に使わない。LoRA 学習のネイティブ実装（`plugins/lora-training`）の部品をできるだけ使い回し、新しい抽象化や設定項目は、測定で必要と分かるまで追加しない。DSH の左サイドバーに「Anima 生成」を置く。
 
 ## 現状
 
@@ -46,7 +46,7 @@
 
 ### 手順 1: 基準の採取（完了）
 
-- ツール: `plugins/dsh-anima-lora-trainer/tools/capture_generate_reference.py`（H3 と同じ方式。ComfyUI を 2 つ目のインスタンスとして起動し、`execution` を読み込んだ直後にフックを入れる）。
+- ツール: `plugins/image-generation/tools/capture_generate_reference.py`（H3 と同じ方式。ComfyUI を 2 つ目のインスタンスとして起動し、`execution` を読み込んだ直後にフックを入れる）。
 - 基準（`.runtime/anima-native/generate-reference`）: 832×1216、er_sde、simple、34 step、CFG 4.5、seed 42。正条件は `@darask, (red scarf:1.3), ...`、負条件は空。
   - 保存したもの: token ID と重み、Qwen の hidden、`c_crossattn`（正・負）、初期 noise（CPU）、35 個の σ、er_sde の step 0・1・2・33 の x / σ / denoised、途中の noise 3 つ、DiT の呼び出し（CFG は batch 2 で `[2, 16, 1, 152, 104]`）、KSampler の出力 latent、デコード後の画像。
 - 速度の基準: 計測中にユーザーの学習と生成スクリプトが同じ GPU を使っていたため、まだ確定していない。採取時の内訳（参考値）は、DiT 1 step（CFG batch 2）が 0.11–0.12 s、VAE デコードが 0.2 s。フックなしの 2 回目以降は約 10 s（GPU が混雑していた）。

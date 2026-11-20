@@ -11,3 +11,13 @@ __pycache__/
 
 # Independently versioned local ComfyUI installation and model library
 /plugins/dsh-comfyui/
+
+# Local model weights, datasets and generated media
+/node_modules
+/.venv
+/models/*
+!/models/README.md
+/datasets/*
+!/datasets/README.md
+/outputs/*
+!/outputs/README.md

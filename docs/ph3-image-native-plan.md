@@ -1,6 +1,6 @@
 # P-H3 image（画像生成・編集）のネイティブ化計画
 
-方針: **速度 ≥ 品質**。H3 動画で作った実行系（`plugins/dsh-minimax-h3/native/`）をそのまま使い、足りない部品だけを足す。新しい抽象化は作らない。完成後は ComfyUI のワークフロー `P-H3-Image Text to Image (int8)` と `P-H3-Image Edit (int8)` を削除する。
+方針: **速度 ≥ 品質**。H3 動画で作った実行系（`plugins/media-shared/native/`）をそのまま使い、足りない部品だけを足す。新しい抽象化は作らない。完成後は ComfyUI のワークフロー `P-H3-Image Text to Image (int8)` と `P-H3-Image Edit (int8)` を削除する。
 
 ## 構成（チェックポイントから確認、2026-11-19）
 

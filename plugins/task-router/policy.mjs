@@ -1,4 +1,4 @@
-import {selectionId} from '../../agents/options.mjs'
+import {selectionId} from '../../harness/agents/options.mjs'
 
 const route=r=>({...r,provider:'local-cli',model:selectionId(r.service,r.options)})
 export const routingVersion=2

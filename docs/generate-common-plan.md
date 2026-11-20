@@ -11,7 +11,7 @@
 
 ## 変更
 
-1. `plugins/dsh-anima-lora-trainer/native/job.py`（学習用の `common.py` の隣）:
+1. `plugins/lora-training/native/job.py`（学習用の `common.py` の隣）:
    - `run(main)`: `sys.argv[1]` の JOB_DIR と request を読み、`main(job)` を呼び、例外は traceback を stderr に出して status を error にして exit 1。
    - `Job.update(**changes)`: 今の `update` と同じ書式・同じ原子的な置き換え。`job.status` / `job.request` / `job.dir`。
    - `load_tensors(path, keep=None, cast=None)`: CUDA に読む（`comfy_quant` キーは除く）。
@@ -28,7 +28,7 @@
 
 Astra のレビュー（`docs/generate-common-astra-review.md`）で範囲を絞った:
 
-- 共通化はジョブの外枠だけ: `plugins/dsh-anima-lora-trainer/native/job.py` の `run(main, 初期 status)` と `Job.update` / `Job.add_image`（RLock で、保存スレッドと進捗の書き込みを直列化）。
+- 共通化はジョブの外枠だけ: `plugins/lora-training/native/job.py` の `run(main, 初期 status)` と `Job.update` / `Job.add_image`（RLock で、保存スレッドと進捗の書き込みを直列化）。
 - `load_tensors` はやめた。`generate.load` と `ph3.tensors` は学習のキャッシュ作成やテストからも呼ばれ、`comfy_quant` の扱いや dtype も違う。
 - P-H3 は同期保存のまま。PNG の `parameters` に LoRA を足しただけ（名前がない request ではファイル名）。
 - `python -I` で起動されるので、各入口は自分のフォルダを先頭に置いたまま、`job.py` のフォルダを後ろに足す（H3 と Anima はどちらも `build.py` を持つ）。

@@ -6,7 +6,7 @@
 
 ## 置き場所
 
-DSH プラグイン `plugins/dsh-anima-lora-trainer/` に集約する（C++/CUDA・Rust・Python 補助・`anima_lora_train` ツール）。`dsh anima build|prepare|train` はこのフォルダーを呼ぶ。
+DSH プラグイン `plugins/lora-training/` に集約する（C++/CUDA・Rust・Python 補助・`anima_lora_train` ツール）。`dsh anima build|prepare|train` はこのフォルダーを呼ぶ。
 
 ## 現状（2026-11-19 時点、実測）
 

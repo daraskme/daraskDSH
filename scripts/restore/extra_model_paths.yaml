@@ -1,5 +1,5 @@
 dsh:
-  base_path: ../../plugins/dsh-comfyui/models
+  base_path: ../../models
   is_default: true
   audio_encoders: audio_encoders
   background_removal: background_removal

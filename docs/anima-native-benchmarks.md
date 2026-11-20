@@ -178,4 +178,4 @@
 2. 1024px は GPU 律速なので、Graphs より要素ごとの演算の融合と attention の比較を先に検討する。
 3. 512px で Graphs を検討するのは、手順 2 の後に GPU 空白が 10% 以上残る場合だけ。
 
-再計測: `.runtime/lora-venv/bin/python plugins/dsh-anima-lora-trainer/native/tests/profile_steps.py 512 40 <出力先>`（CUDA のみをトレースし、各 step の AdamW カーネルを区切りに 6 step 目以降を集計）。
+再計測: `.runtime/lora-venv/bin/python plugins/lora-training/native/tests/profile_steps.py 512 40 <出力先>`（CUDA のみをトレースし、各 step の AdamW カーネルを区切りに 6 step 目以降を集計）。

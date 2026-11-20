@@ -4,7 +4,7 @@
 
 ## 現状（2026-11-19 実測、50 枚、`@muninshiki` ジョブの llama.log）
 
-- 構成: `plugins/dsh-anima-lora-trainer/pipeline.py` が llama.cpp b12469 の `llama-server` を `-np 1 -c 8192 -ngl all --reasoning off` で起動する。画像を 1 枚ずつ、PIL で 1024px の JPEG にしてから base64 にし、HTTP の `/v1/chat/completions` で送る。
+- 構成: `plugins/lora-training/pipeline.py` が llama.cpp b12469 の `llama-server` を `-np 1 -c 8192 -ngl all --reasoning off` で起動する。画像を 1 枚ずつ、PIL で 1024px の JPEG にしてから base64 にし、HTTP の `/v1/chat/completions` で送る。
 - モデル: gemma-4-Ortenzya 31B Q4_K_M（18.7 GB）と mmproj BF16（1.2 GB）。GPU は RTX PRO 6000 Blackwell（96 GB）。
 - 時間（50 枚で約 109 s）:
   - モデルのロード: 7.3 s

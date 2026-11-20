@@ -33,7 +33,7 @@
 
 ## 新しく書くもの
 
-- `plugins/dsh-minimax-h3/native/train/model.py`: 学習用の DiT（ブロック、token_refiner、final layer、packed layout と位置表は `sampler.py` / `dit.cpp` と同じ）。LoRA と int8 の autograd 関数。
+- `plugins/media-shared/native/train/model.py`: 学習用の DiT（ブロック、token_refiner、final layer、packed layout と位置表は `sampler.py` / `dit.cpp` と同じ）。LoRA と int8 の autograd 関数。
 - `train/encode.py`: 動画 VAE のエンコーダー（3D、ComfyUI の `EncoderFCN3D` と同じ）と音声 VAE のエンコーダー（`audio_vae.py` の `encode`）。今の `vae.py` のエンコーダーは 1 フレームのみ。
 - `train/train.py`: キャッシュ作成 → 学習ループ → 保存。進捗は `status.json`（Anima と同じ書式）。
 - 生成側: `merge_loras` が diffusion-pipe 形式のキーも読む（H3）。P-H3 は int8 に合成できないので、`dit.cpp` の `proj` で LoRA の分岐を足す。ジョブの request に `loras` を通す。
@@ -42,7 +42,7 @@
 
 - キャプション: `pipeline.py` の Gemma キャプションをそのまま使う。動画は数フレームを渡してキャプションを付ける。
 - ジョブ・パネル: 学習パネルにモデル選択（Anima / H3 / P-H3）を足し、同じキューで実行する。プリセット（`presets.mjs`）は model ごとに既定値を持つ。
-- Python の小物（`_publish_new`、LoRA の保存、サンプル順、勾配クリップ、アスペクト比のバケット、flow の入力）は `plugins/dsh-anima-lora-trainer/native/common.py` に移し、両方から使う。
+- Python の小物（`_publish_new`、LoRA の保存、サンプル順、勾配クリップ、アスペクト比のバケット、flow の入力）は `plugins/lora-training/native/common.py` に移し、両方から使う。
 - 共通にしないもの: Anima の C++ エンジン（モデルが違う）、Rust の前処理（動画・音声を扱わない）。
 
 ## 確認
@@ -67,7 +67,7 @@ Astra のレビュー（`docs/h3-lora-astra-review.md`）を反映した点:
 
 - 生成: `merge_loras` が diffusion-pipe / PEFT 形式（`diffusion_model.*.lora_A/B`）も読む。P-H3 の int8 ブロックは合成できないので、`loras.py` が `<層>.lora_a/b` を付け、`dit.cpp` の `proj` が実行時に足す（refiner は BF16 なので合成）。H3 は VBVR → ユーザーの LoRA の順に合成。
 - パネル: 「LoRA 学習」にモデル選択（Anima / MiniMax H3 / P-H3）。H3 は動画（先頭の最大 136 フレームと音声）も素材にでき、Gemma は動画の真ん中のフレームでキャプションを付ける。H3 動画・P-H3 画像・Anima 生成の各パネルは共通の LoRA 選択欄を使い、一覧はキーと `dsh_model` メタデータでモデルごとに分ける。チャットの `image_generate` / `video_generate` も LoRA を受け付ける。
-- Anima と共通: `plugins/dsh-anima-lora-trainer/native/common.py`（サンプル探索、アスペクト比バケット、画像の読み込み、サンプル順、勾配クリップ、原子的な保存）。ジョブのキュー・`pipeline.py`（キャプション → 学習）・進捗の書式も共通。
+- Anima と共通: `plugins/lora-training/native/common.py`（サンプル探索、アスペクト比バケット、画像の読み込み、サンプル順、勾配クリップ、原子的な保存）。ジョブのキュー・`pipeline.py`（キャプション → 学習）・進捗の書式も共通。
 
 確認（`test_lora_model.py h3|ph3`、`test_encode_av_parity.py`）:
 

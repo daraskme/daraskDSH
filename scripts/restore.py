@@ -4,7 +4,6 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -14,12 +13,15 @@ from tempfile import TemporaryDirectory
 
 from huggingface_hub import hf_hub_download
 
+from storage_layout import link_directory, organize_storage
+
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNTIME = ROOT / ".runtime"
 SUPPORT = ROOT / "scripts/restore"
-MODEL_ROOT = ROOT / "plugins/dsh-comfyui/models"
+MODEL_ROOT = ROOT / "models"
 CACHE = RUNTIME / "restore-downloads"
+ORIGINAL_ROOT = "/mnt/6tb/daraskDSH"
 SOURCES = (
     ("ComfyUI", "https://github.com/Comfy-Org/ComfyUI.git",
      "989d93d0d968e704c589ce0146bb18c77f6b50cc", False),
@@ -73,16 +75,6 @@ def merge_directory(source, destination):
             shutil.copy2(child, target)
 
 
-def link_directory(link, target):
-    relative = Path(os.path.relpath(target, link.parent))
-    if link.is_symlink():
-        if link.resolve() == target.resolve():
-            return
-        raise FileExistsError(link)
-    link.parent.mkdir(parents=True, exist_ok=True)
-    link.symlink_to(relative, target_is_directory=True)
-
-
 def restore_sources():
     for name, url, revision, submodules in SOURCES:
         destination = RUNTIME / name
@@ -111,7 +103,8 @@ def restore_sources():
 
 def restore_layout():
     comfy = RUNTIME / "ComfyUI"
-    plugin = MODEL_ROOT.parent
+    plugin = ROOT / "plugins/dsh-comfyui"
+    organize_storage(ROOT)
     merge_directory(SUPPORT / "legacy/dsh-comfyui", plugin)
     merge_directory(SUPPORT / "legacy/anima_edit_reference", comfy / "custom_nodes/anima_edit_reference")
     # ComfyUI keeps its upstream model placeholders and loads the DSH library under the same model categories.
@@ -132,15 +125,31 @@ def restore_archive(path, restore_home):
         with tarfile.open(path, "r:gz") as archive:
             archive.extractall(staging, filter="data")
         if (staging / "workspace").exists():
-            merge_directory(staging / "workspace", ROOT)
+            workspace = staging / "workspace"
+            organize_storage(workspace, aliases=False)
+            paths = (
+                *workspace.glob(".runtime/anima-native/jobs/**/*.json"),
+                *workspace.glob("outputs/manga/projects/*/project.json"),
+            )
+            for item in paths:
+                rebase_paths(item)
+            merge_directory(workspace, ROOT)
         if restore_home and (staging / "home").exists():
             config_path = staging / "home/.config/comfy-folder-lora/config.json"
             if config_path.is_file():
-                configuration = config_path.read_text(encoding="utf-8")
-                old_root = json.dumps("/mnt/6tb/daraskDSH")[1:-1]
-                new_root = json.dumps(str(ROOT))[1:-1]
-                config_path.write_text(configuration.replace(old_root, new_root), encoding="utf-8")
+                rebase_paths(config_path)
             merge_directory(staging / "home", Path.home())
+
+
+def rebase_paths(path):
+    if str(ROOT) == ORIGINAL_ROOT:
+        return
+    original = path.read_text(encoding="utf-8")
+    old_root = json.dumps(ORIGINAL_ROOT)[1:-1]
+    new_root = json.dumps(str(ROOT))[1:-1]
+    updated = original.replace('"' + old_root + '/', '"' + new_root + '/')
+    if updated != original:
+        path.write_text(updated, encoding="utf-8")
 
 
 def main():
@@ -153,7 +162,6 @@ def main():
     snapshot = json.loads((SUPPORT / "snapshot.json").read_text(encoding="utf-8"))
     CACHE.mkdir(parents=True, exist_ok=True)
     restore_sources()
-    restore_layout()
     datasets = snapshot["data"]
     for entry in datasets["files"]:
         if entry["path"] == "user-state.tar.gz" and not args.with_user_state:
@@ -161,6 +169,7 @@ def main():
         print(f"Restoring {entry['path']}", flush=True)
         path = download_file(datasets["repo"], datasets["revision"], "dataset", entry, CACHE)
         restore_archive(path, args.with_user_state)
+    restore_layout()
     if not args.skip_models:
         models = snapshot["models"]
         print(f"Downloading and verifying {len(models['files'])} model files", flush=True)

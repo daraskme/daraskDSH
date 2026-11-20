@@ -103,7 +103,7 @@
 
 ### 手順 1: 既存グラフでの計測と基準テンソル（完了）
 
-- 計測ツール: `plugins/dsh-minimax-h3/tools/capture_reference.py`。ComfyUI 本体（`main.py`）を 2 つ目のインスタンス（ポート 8189）として起動し、`execution` が読み込まれた直後にフックを入れる。本番の ComfyUI はそのまま。
+- 計測ツール: `plugins/media-shared/tools/capture_reference.py`。ComfyUI 本体（`main.py`）を 2 つ目のインスタンス（ポート 8189）として起動し、`execution` が読み込まれた直後にフックを入れる。本番の ComfyUI はそのまま。
 - 基準テンソル（640×384×39、seed 42、プロンプトは `prompt.txt`）: `.runtime/h3-native/reference-small/reference.safetensors`（47 個）。
   - token ID（33 個）、Qwen の出力（[1, 33, 5120]、FP32）、refiner の入力と出力（[33, 5376]）
   - sigma 9 個
@@ -127,7 +127,7 @@
 
 ### 手順 2: SLA を SM 12.0 のネイティブで動かす（完了・成功）
 
-- comfy-kitchen v0.2.41（commit cbc44a5、Apache-2.0）から、Sol の 7 つの `.cu` と `sol_layout.cuh` とその依存ヘッダー 5 個を、ライセンス表記ごと `plugins/dsh-minimax-h3/native/kitchen/vendor/` に取り込んだ（無改変）。
+- comfy-kitchen v0.2.41（commit cbc44a5、Apache-2.0）から、Sol の 7 つの `.cu` と `sol_layout.cuh` とその依存ヘッダー 5 個を、ライセンス表記ごと `plugins/media-shared/native/kitchen/vendor/` に取り込んだ（無改変）。
 - ツールチェーン:
   - H3 の実行系は、ComfyUI と同じ PyTorch 2.15 + CUDA 13.2 にそろえる。cu132 の cuBLAS が `nvjet_sm120` の GEMM を使うため（Anima で使っている 2.9.1 + cu128 では `cutlass_80` になる）。
   - CUDA 12.8 の nvcc は GCC 15 の標準ライブラリを解釈できないため、PyPI の `nvidia-cuda-nvcc`・`nvidia-nvvm`・`nvidia-cuda-crt` 13.2.78 を `.runtime/h3-native/toolchain` に入れて使う（バージョンを揃えないと PTX のバージョンが合わない）。
@@ -143,7 +143,7 @@
 
 ### 手順 3: テキスト条件（完了）
 
-実装は `plugins/dsh-minimax-h3/native/te.cpp`（Qwen3-VL 32B の第 50 層まで）と `condition.cpp`（condition_proj、token refiner、LoRA のマージ）。確認は `native/test_text_parity.py`。
+実装は `plugins/media-shared/native/te.cpp`（Qwen3-VL 32B の第 50 層まで）と `condition.cpp`（condition_proj、token refiner、LoRA のマージ）。確認は `native/test_text_parity.py`。
 
 | 照合点 | 結果 |
 |---|---|
@@ -203,5 +203,5 @@
 
 ### 手順 9: DSH への組み込み（パネルとキューは完了）
 
-- 左サイドバーに「H3 動画」パネル（`plugins/dsh-anima-lora-trainer/client.js`）。LoRA 学習・Anima 生成と同じキュー（`jobs.mjs` の `kind: 'h3'`）で GPU を順番に使う。MP4 はパネルで再生できる。
+- 左サイドバーに「H3 動画」パネル（`plugins/lora-training/client.js`）。LoRA 学習・Anima 生成と同じキュー（`jobs.mjs` の `kind: 'h3'`）で GPU を順番に使う。MP4 はパネルで再生できる。
 - 残り: チャットツール、常駐の採否（読み込みの 28.9 s をどうするか）、手順 8 の FP8、手順 10 の旧経路の削除。

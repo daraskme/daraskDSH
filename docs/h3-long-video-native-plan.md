@@ -1,6 +1,6 @@
 # MiniMax H3 長尺動画のネイティブ化計画
 
-方針: 速度 ≥ 品質。ComfyUI-H3-Long-Video（ooizj、GPL-3.0。コードは写さず、手順だけ合わせる）と同じ「区間を順に生成して latent で繋ぐ」方式を、既存の `plugins/dsh-minimax-h3/native/` に足す。ComfyUI 本体の Context Windows（1 回のサンプリングで窓をずらす）は採らない（窓ごとに全 step を回すので速くならず、実装も大きい）。
+方針: 速度 ≥ 品質。ComfyUI-H3-Long-Video（ooizj、GPL-3.0。コードは写さず、手順だけ合わせる）と同じ「区間を順に生成して latent で繋ぐ」方式を、既存の `plugins/media-shared/native/` に足す。ComfyUI 本体の Context Windows（1 回のサンプリングで窓をずらす）は採らない（窓ごとに全 step を回すので速くならず、実装も大きい）。
 
 ## 方式（ooizj と同じ数値）
 

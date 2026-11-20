@@ -3,12 +3,12 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 if command -v corepack >/dev/null; then
-  corepack npm@11.6.2 ci
+  corepack npm@11.6.2 --prefix harness ci
 else
-  npm ci
+  npm --prefix harness ci
 fi
-uv venv --allow-existing .venv --python 3.14.4
-uv pip install --python .venv/bin/python -r requirements.txt
+uv venv --allow-existing harness/.venv --python 3.14.4
+uv pip install --python harness/.venv/bin/python -r harness/requirements.txt
 
 restore_env() {
   local name=$1
@@ -29,6 +29,6 @@ if [[ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/comfy-folder-lora/config.json" ]];
 fi
 
 export PATH="$PWD/.runtime/lora-venv/bin:$PATH"
-.runtime/comfy-venv/bin/python plugins/dsh-minimax-h3/native/build_kitchen.py
+.runtime/comfy-venv/bin/python plugins/media-shared/native/build_kitchen.py
 ./dsh anima build
 ./dsh anima prepare

@@ -1,6 +1,6 @@
 # H3 の I2V・ref2video と P-H3 の編集・ref 生成のネイティブ化、チャットからの生成
 
-方針: **速度 ≥ 品質**。既存のネイティブ実行系（`plugins/dsh-minimax-h3/native/`、T2V と T2I はビット一致済み）に、画像を条件に入れる部品だけを足す。新しい抽象化は作らない。仕様は ComfyUI v0.45.0 の `comfy_extras/nodes_minimax_h3.py`、`comfy/model_base.py`（MiniMaxH3）、`comfy/ldm/minimax/{model,vae}.py`、`comfy/text_encoders/{minimax,qwen3vl,qwen35}.py`。
+方針: **速度 ≥ 品質**。既存のネイティブ実行系（`plugins/media-shared/native/`、T2V と T2I はビット一致済み）に、画像を条件に入れる部品だけを足す。新しい抽象化は作らない。仕様は ComfyUI v0.45.0 の `comfy_extras/nodes_minimax_h3.py`、`comfy/model_base.py`（MiniMaxH3）、`comfy/ldm/minimax/{model,vae}.py`、`comfy/text_encoders/{minimax,qwen3vl,qwen35}.py`。
 
 ## 対象（2026-11-19 時点）
 

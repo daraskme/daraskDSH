@@ -23,7 +23,7 @@ LARGE = 128 * 1024**2
 SHARD_SIZE = 2 * 1024**3
 OMIT_NAMES = {
     ".git", ".debris", "cache", ".cache", "uvcache", "__pycache__", "node_modules", ".aws", ".secrets",
-    ".codex", ".agents", ".netrc", ".npmrc", ".pypirc", ".credentials.yaml",
+    ".codex", ".agents", ".ssh", ".gnupg", ".netrc", ".npmrc", ".pypirc", ".credentials.yaml",
     "auth.json", "credentials.json", "token", "secrets.json",
 }
 TEXT_SUFFIXES = {
@@ -109,8 +109,11 @@ def pack(source, stage):
 
     def finish_shard(archive, path):
         archive.close()
-        manifest["files"].append(file_entry(path, path.relative_to(stage).as_posix()))
-        print(f"Packed {path.name}: {path.stat().st_size / 1024**3:.2f} GiB", flush=True)
+        checksum = digest(path)
+        destination = path.with_name(f"{checksum}.tar")
+        path.replace(destination)
+        manifest["files"].append(file_entry(destination, destination.relative_to(stage).as_posix(), checksum))
+        print(f"Packed archive {shard_index}: {destination.stat().st_size / 1024**3:.2f} GiB", flush=True)
 
     archive = None
     shard_index = 0
