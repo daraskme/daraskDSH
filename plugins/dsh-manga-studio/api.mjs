@@ -105,19 +105,31 @@ async function createProject(body) {
   const idea = text(body.idea, '企画', 6000)
   const format = ['page', 'yonkoma', 'webtoon'].includes(body.format) ? body.format : 'page'
   const rating = body.rating === 'adult' ? 'adult' : 'general'
+  const loras = await checkLoras(body.loras)
   const id = new Date().toISOString().slice(0, 10) + '-' + randomBytes(4).toString('hex')
   await mkdir(join(PROJECTS, id, 'images'), {recursive:true})
   const project = {
     id, created:new Date().toISOString(),
     brief:{idea, pages:int(body.pages ?? 8, 'ページ数', 1, 60), genre:text(body.genre, 'ジャンル', 200), format, rating,
            service:SERVICES.includes(body.service) ? body.service : 'claude'},
-    render:{prefix:DEFAULT_PREFIX, negative:'', loras:[], steps:34, cfg:4.5, engine:'ref', mono:true, restyle:true},
+    render:{prefix:DEFAULT_PREFIX, negative:'', loras, steps:34, cfg:4.5, engine:'ref', mono:true, restyle:true},
     places:{},
     name:{meta:{title, format, rating, first_page_side:'left', style:text(body.style, '画風', 2000) || DEFAULT_STYLE}, characters:[], pages:[]},
     takes:{}, adopted:{}, layers:{}, task:null,
   }
   await writeProject(project)
   return {id}
+}
+
+/** The work's style LoRAs (Anima, up to 4): applied to every Anima picture (panels, sheets, plates, style passes). */
+async function checkLoras(list) {
+  const available = new Set(await listLoraNames())
+  return (Array.isArray(list) ? list : []).filter(l => l?.name).slice(0, 4).map(l => {
+    if (!available.has(l.name)) throw Error('LoRA が見つかりません: ' + l.name)
+    const strength = Number(l.strength)
+    if (!Number.isFinite(strength) || strength < -2 || strength > 2) throw Error('LoRA の強さは -2〜2 にしてください')
+    return {name:l.name, strength}
+  })
 }
 
 async function deleteProject(id) {
@@ -595,8 +607,9 @@ async function settleTakes(project) {
         // The first picture of a panel is adopted; so is a fix the inspection asked for.
         project.adopted[panelId] = {take:take.id, file:take.files[0]}
       }
-      // "Draw with references" then Anima over it: the work's style and LoRAs back on the P-H3 picture.
-      if (take.engine === 'ref' && take.files.length && project.render.restyle !== false && !panelId.startsWith('@')) {
+      // P-H3 pictures (drawn with references, or fixed with a P-H3 edit) then Anima over them: the work's style and
+      // LoRAs back on the picture, so the page keeps one style.
+      if (['ref', 'ph3', 'ph3-edit'].includes(take.engine) && take.files.length && project.render.restyle !== false && !panelId.startsWith('@')) {
         try {
           const follow = await animaEditPanel(project, panelId, {take:take.id, file:take.files[0], mode:'style', count:1,
             autoAdopt:project.adopted[panelId]?.take === take.id})
@@ -706,13 +719,7 @@ async function updateSettings(body) {
     if ('restyle' in body) r.restyle = body.restyle !== false
     if ('steps' in body) r.steps = int(body.steps, 'step 数', 1, 100)
     if ('cfg' in body) { const v = Number(body.cfg); if (!(v >= 1 && v <= 20)) throw Error('CFG は 1〜20 です'); r.cfg = v }
-    if ('loras' in body) {
-      const available = new Set(await listLoraNames())
-      r.loras = (Array.isArray(body.loras) ? body.loras : []).filter(l => l?.name).slice(0, 4).map(l => {
-        if (!available.has(l.name)) throw Error('LoRA が見つかりません: ' + l.name)
-        return {name:l.name, strength:Number(l.strength) || 1}
-      })
-    }
+    if ('loras' in body) r.loras = await checkLoras(body.loras)
     return {ok:true}
   })
 }

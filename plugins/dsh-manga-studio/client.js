@@ -212,13 +212,26 @@ window.__ModuleLoader__.load({
 
     // ---------- project list ----------
 
-    function NewProject({services, open}) {
-      const [form,setForm] = React.useState({title:'',idea:'',genre:'',pages:8,format:'page',rating:'general',style:'',service:'claude',write:true})
+    /** Style LoRAs of the work (Anima): name + strength rows, up to 4. */
+    function LoraRows({value, onChange, available, disabled}) {
+      const setLora = (i, patch) => onChange(value.map((l, k) => k === i ? {...l,...patch} : l))
+      return h('fieldset',{disabled},h('legend',null,'画風 LoRA（Anima。全コマ・三面図・背景・画風そろえにかける）'),
+        value.map((l, i) => h('div',{key:i,className:'mg-row'},
+          h('select',{value:l.name,'aria-label':'LoRA',onChange:e => setLora(i,{name:e.target.value})},h('option',{value:''},'選択'),
+            available.map(n => h('option',{key:n,value:n},n.replace(/\.safetensors$/,'')))),
+          h('input',{type:'number',step:0.05,min:-2,max:2,value:l.strength,className:'mg-narrow','aria-label':'強さ',onChange:e => setLora(i,{strength:e.target.value})}),
+          h(Button,{type:'button',size:'sm',variant:'outline',onClick:() => onChange(value.filter((_, k) => k !== i))},'外す'))),
+        value.length < 4 && h(Button,{type:'button',size:'sm',variant:'outline',className:'mg-start',disabled:!available.length,
+          onClick:() => onChange([...value,{name:'',strength:1}])},available.length ? '画風 LoRA を追加' : '使える Anima LoRA がありません'))
+    }
+
+    function NewProject({services, loras, open}) {
+      const [form,setForm] = React.useState({title:'',idea:'',genre:'',pages:8,format:'page',rating:'general',style:'',service:'claude',write:true,loras:[]})
       const {busy, act, messages} = useAction()
       const set = patch => setForm(f => ({...f,...patch}))
       async function submit(e) {
         e.preventDefault()
-        const created = await act({action:'create',...form})
+        const created = await act({action:'create',...form,loras:form.loras.filter(l => l.name).map(l => ({name:l.name,strength:Number(l.strength)}))})
         if (!created) return
         if (form.write) await act({action:'write',project:created.id,scope:'all'})
         open(created.id)
@@ -237,6 +250,8 @@ window.__ModuleLoader__.load({
           h('label',null,h('span',null,'対象'),h('select',{value:form.rating,disabled:busy,onChange:e => set({rating:e.target.value})},
             h('option',{value:'general'},'一般'),h('option',{value:'adult'},'成人向け（登場人物は全員成人）')))),
         h('label',null,h('span',null,'画風（英語推奨。空欄なら白黒漫画の既定）'),h('input',{value:form.style,disabled:busy,placeholder:'black-and-white Japanese manga, clean ink line art, ...',onChange:e => set({style:e.target.value})})),
+        h(LoraRows,{value:form.loras,onChange:loras => set({loras}),available:loras || [],disabled:busy}),
+        h('p',{className:'mg-meta'},'トリガーワードのある LoRA は、上の画風の文に入れてください（全コマのプロンプトに入ります）。'),
         h('div',{className:'mg-row'},
           h('label',null,h('span',null,'ネームを切る AI'),h('select',{value:form.service,disabled:busy,onChange:e => set({service:e.target.value})},
             services.map(s => h('option',{key:s.id,value:s.id},s.label)))),
@@ -257,7 +272,7 @@ window.__ModuleLoader__.load({
         list && h(React.Fragment,null,
           h('div',{className:'mg-toolbar'},h('strong',null,'プロジェクト'),
             h(Button,{variant:creating ? 'outline' : 'primary',size:'sm',onClick:() => setCreating(!creating)},creating ? '閉じる' : '＋ 新しい漫画')),
-          (creating || !list.projects.length) && h(NewProject,{services:list.services,open}),
+          (creating || !list.projects.length) && h(NewProject,{services:list.services,loras:list.loras,open}),
           h('div',{className:'mg-projects'},list.projects.map(p => h('button',{key:p.id,type:'button',className:'mg-project',onClick:() => open(p.id)},
             h('div',{className:'mg-cover'},p.cover ? h('img',{src:fileUrl(p.id, p.cover),alt:''}) : h('span',null,p.title.slice(0, 1))),
             h('strong',null,p.title),
@@ -314,7 +329,6 @@ window.__ModuleLoader__.load({
       const [loras,setLoras] = React.useState([])
       React.useEffect(() => { get('').then(d => setLoras(d.loras)).catch(() => {}) }, [])
       const set = patch => setForm(f => ({...f,...patch}))
-      const setLora = (i, patch) => set({loras:form.loras.map((l, k) => k === i ? {...l,...patch} : l)})
       return h('form',{className:'mg-card',onSubmit:e => { e.preventDefault(); act({action:'settings',project:project.id,...form},'保存しました') }},
         h('h3',null,'作品の設定'),
         h('label',null,h('span',null,'題名'),h('input',{value:form.title,onChange:e => set({title:e.target.value})})),
@@ -325,18 +339,12 @@ window.__ModuleLoader__.load({
         h('label',null,h('span',null,'画風ブロック（全コマ共通・英語）'),h('textarea',{rows:3,value:form.style,onChange:e => set({style:e.target.value})})),
         h('label',null,h('span',null,'Anima のプロンプトの先頭'),h('input',{value:form.prefix,onChange:e => set({prefix:e.target.value})})),
         h('label',null,h('span',null,'ネガティブプロンプト（Anima）'),h('input',{value:form.negative,onChange:e => set({negative:e.target.value})})),
-        h('fieldset',null,h('legend',null,'全コマにかける Anima LoRA（画風など）'),
-          form.loras.map((l, i) => h('div',{key:i,className:'mg-row'},
-            h('select',{value:l.name,'aria-label':'LoRA',onChange:e => setLora(i,{name:e.target.value})},h('option',{value:''},'選択'),
-              loras.map(n => h('option',{key:n,value:n},n.replace(/\.safetensors$/,'')))),
-            h('input',{type:'number',step:0.05,min:-2,max:2,value:l.strength,className:'mg-narrow','aria-label':'強さ',onChange:e => setLora(i,{strength:e.target.value})}),
-            h(Button,{type:'button',size:'sm',variant:'outline',onClick:() => set({loras:form.loras.filter((_, k) => k !== i)})},'外す'))),
-          form.loras.length < 4 && h(Button,{type:'button',size:'sm',variant:'outline',className:'mg-start',onClick:() => set({loras:[...form.loras,{name:'',strength:1}]})},'LoRA を追加')),
+        h(LoraRows,{value:form.loras,onChange:loras => set({loras}),available:loras}),
         h('div',{className:'mg-grid'},
           h('label',null,h('span',null,'コマの描き方（既定）'),h('select',{value:form.engine,onChange:e => set({engine:e.target.value})},
             h('option',{value:'ref'},'参照で描く（三面図・背景 → P-H3）'),h('option',{value:'anima'},'Anima だけで描く'),h('option',{value:'ph3'},'P-H3（設定画とプロンプト）'))),
           h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:form.mono,onChange:e => set({mono:e.target.checked})}),h('span',null,'P-H3 の絵を白黒にする')),
-          h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:form.restyle,onChange:e => set({restyle:e.target.checked})}),h('span',null,'参照で描いた後、Anima で画風をそろえる')),
+          h('label',{className:'mg-check'},h('input',{type:'checkbox',checked:form.restyle,onChange:e => set({restyle:e.target.checked})}),h('span',null,'P-H3 で描いた・直した絵に、Anima で画風をそろえる')),
           h('label',null,h('span',null,'step'),h('input',{type:'number',min:1,max:100,value:form.steps,onChange:e => set({steps:e.target.value})})),
           h('label',null,h('span',null,'CFG'),h('input',{type:'number',min:1,max:20,step:0.1,value:form.cfg,onChange:e => set({cfg:e.target.value})}))),
         h('div',{className:'mg-actions'},h(Button,{type:'submit',variant:'primary',size:'sm',disabled:busy},'保存')))
