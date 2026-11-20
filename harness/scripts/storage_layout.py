@@ -50,6 +50,9 @@ def organize_storage(root, *, aliases=True):
         ("plugins/dsh-comfyui/models", "models"),
         ("plugins/dsh-comfyui/characters", "datasets/references/characters"),
         ("plugins/dsh-comfyui/refmods", "datasets/references/refmods"),
+        (".runtime/vocab-pack", "models/vocab-pack"),
+        (".runtime/ComfyUI/input", "datasets/comfyui-input"),
+        (".runtime/anima-native/uploads", "datasets/media-uploads"),
         (".runtime/manga/projects", "outputs/manga/projects"),
         (".runtime/manga/trash", "outputs/manga/trash"),
         (".runtime/exports", "outputs/exports"),
@@ -79,4 +82,4 @@ def organize_storage(root, *, aliases=True):
 
 
 if __name__ == "__main__":
-    organize_storage(Path(__file__).resolve().parent.parent)
+    organize_storage(Path(__file__).resolve().parents[2])

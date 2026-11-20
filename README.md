@@ -100,13 +100,13 @@ dsh ask openai --model gpt-6.2-astra --effort high '設計をレビューして'
 
 ## フォルダー構成
 
-- [harness](harness/) に DeepSeek Harness 本体、起動設定、依存関係、Web UI、テストがあります。
+- [harness](harness/) に DeepSeek Harness 本体、起動設定、依存関係、Web UI、テスト、復元用スクリプトと資料があります。
 - [plugins](plugins/) は漫画生成、画像生成、動画生成、画像編集、LoRA 学習などの拡張機能です。
 - [datasets](datasets/) に共有データセットとアップロード素材、[models](models/) にモデルと LoRA、[outputs](outputs/) に生成・編集・書き出し結果があります。
 
 ## バックアップから復元
 
-作業フォルダーを失った場合は、[復元手順](docs/restore.md)に従って GitHub のクローンから環境を組み直せます。モデル、LoRA、漫画プロジェクト、ワークフロー、設定と履歴は、指定の非公開 Hugging Face リポジトリから取得します。
+作業フォルダーを失った場合は、[復元手順](harness/docs/restore.md)に従って GitHub のクローンから環境を組み直せます。モデル、LoRA、漫画プロジェクト、ワークフロー、設定と履歴は、指定の非公開 Hugging Face リポジトリから取得します。
 
 ## Anima LoRA 学習
 

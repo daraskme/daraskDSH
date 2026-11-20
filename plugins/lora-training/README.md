@@ -11,16 +11,16 @@ Anima Base v1.0 の LoRA を C++/LibTorch + CUDA（前処理は Rust）でネイ
 - CLI: `dsh anima build|prepare|train`（ルートの `dsh` がこのフォルダーを呼ぶ）
 - ビルド成果物・キャッシュは `.runtime/anima-native/` に置く
 
-計画: [docs/anima-native-plan-v2.md](../../docs/anima-native-plan-v2.md)、生成は [docs/anima-generate-native-plan.md](../../docs/anima-generate-native-plan.md)
+計画: [docs/anima-native-plan-v2.md](../../harness/docs/anima-native-plan-v2.md)、生成は [docs/anima-generate-native-plan.md](../../harness/docs/anima-generate-native-plan.md)
 
 ## LoRA 学習パネル
 
-左サイドバーの「LoRA 学習」で、Anima・MiniMax H3・P-H3 の LoRA を作る（Gemma でキャプション → ネイティブ学習）。H3 / P-H3 は `plugins/media-shared/native/train_lora.py`（diffusion-pipe と同じ学習式、[docs/h3-lora-native-plan.md](../../docs/h3-lora-native-plan.md)）。H3 は動画（音声つき）も素材にできる。学習した LoRA は各生成パネルとチャットのツールで選べる。
+左サイドバーの「LoRA 学習」で、Anima・MiniMax H3・P-H3 の LoRA を作る（Gemma でキャプション → ネイティブ学習）。H3 / P-H3 は `plugins/media-shared/native/train_lora.py`（diffusion-pipe と同じ学習式、[docs/h3-lora-native-plan.md](../../harness/docs/h3-lora-native-plan.md)）。H3 は動画（音声つき）も素材にできる。学習した LoRA は各生成パネルとチャットのツールで選べる。
 
 ## H3 動画パネル
 
-左サイドバーの「H3 動画」から、MiniMax H3（Eros beta7 + VBVR Pro V2）の音声つき動画を作る。実行系は `plugins/media-shared/native/generate.py`（ComfyUI のコードを使わないネイティブ実装、[docs/h3-native-plan.md](../../docs/h3-native-plan.md)）。ジョブは学習・Anima 生成と同じキューに入る。長さは最大 60 秒（1440 フレーム）で、362 フレームを超えると約 15 秒ずつの区間を繋いで作る（[docs/h3-long-video-native-plan.md](../../docs/h3-long-video-native-plan.md)）。
+左サイドバーの「H3 動画」から、MiniMax H3（Eros beta7 + VBVR Pro V2）の音声つき動画を作る。実行系は `plugins/media-shared/native/generate.py`（ComfyUI のコードを使わないネイティブ実装、[docs/h3-native-plan.md](../../harness/docs/h3-native-plan.md)）。ジョブは学習・Anima 生成と同じキューに入る。長さは最大 60 秒（1440 フレーム）で、362 フレームを超えると約 15 秒ずつの区間を繋いで作る（[docs/h3-long-video-native-plan.md](../../harness/docs/h3-long-video-native-plan.md)）。
 
 ## P-H3 画像パネル
 
-左サイドバーの「P-H3 画像」から、p-h3-image（int8）で画像を作る（テキストから画像のみ。プロンプト拡張は使わない）。実行系は `plugins/media-shared/native/ph3.py`（[docs/ph3-image-native-plan.md](../../docs/ph3-image-native-plan.md)）。ジョブは同じキューに入る。
+左サイドバーの「P-H3 画像」から、p-h3-image（int8）で画像を作る（テキストから画像のみ。プロンプト拡張は使わない）。実行系は `plugins/media-shared/native/ph3.py`（[docs/ph3-image-native-plan.md](../../harness/docs/ph3-image-native-plan.md)）。ジョブは同じキューに入る。

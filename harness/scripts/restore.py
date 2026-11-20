@@ -16,9 +16,9 @@ from huggingface_hub import hf_hub_download
 from storage_layout import link_directory, organize_storage
 
 
-ROOT = Path(__file__).resolve().parent.parent
+SUPPORT = Path(__file__).resolve().with_name("restore")
+ROOT = SUPPORT.parents[2]
 RUNTIME = ROOT / ".runtime"
-SUPPORT = ROOT / "scripts/restore"
 MODEL_ROOT = ROOT / "models"
 CACHE = RUNTIME / "restore-downloads"
 ORIGINAL_ROOT = "/mnt/6tb/daraskDSH"
@@ -162,6 +162,7 @@ def main():
     snapshot = json.loads((SUPPORT / "snapshot.json").read_text(encoding="utf-8"))
     CACHE.mkdir(parents=True, exist_ok=True)
     restore_sources()
+    organize_storage(ROOT)
     datasets = snapshot["data"]
     for entry in datasets["files"]:
         if entry["path"] == "user-state.tar.gz" and not args.with_user_state:
@@ -180,7 +181,7 @@ def main():
             ]
             for future in futures:
                 print(f"Verified {future.result().relative_to(ROOT)}", flush=True)
-    print("DSH backup restored. Run scripts/setup-restored.sh to install and build the environment.")
+    print("DSH backup restored. Run harness/scripts/setup-restored.sh to install and build the environment.")
 
 
 if __name__ == "__main__":

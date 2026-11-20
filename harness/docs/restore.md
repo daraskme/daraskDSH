@@ -19,15 +19,15 @@ git clone --branch anima-native-generate https://github.com/daraskme/daraskDSH.g
 cd /mnt/6tb/daraskDSH
 uvx --python 3.12 --from huggingface-hub==0.36.2 hf auth login
 uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
-  python scripts/restore.py --with-user-state
-./scripts/setup-restored.sh
+  python harness/scripts/restore.py --with-user-state
+./harness/scripts/setup-restored.sh
 ./dsh --version
 ./dsh web
 ```
 
 ダウンロードが中断した場合は、同じ復元コマンドをもう一度実行します。保存済みファイルを照合して再利用します。内容が異なる既存の設定や制作ファイルがある場合は、対象パスを表示して停止します。別フォルダーでデータだけ確認するには `--skip-models` を使い、ホームに設定・履歴を入れない場合は `--with-user-state` を省略します。
 
-別のパスへ復元すると学習設定のプロジェクトルートは復元先に合わせて書き換わります。履歴に記録済みのパスや、外部プロジェクト・ワークスペースのパスは必要に応じて設定画面で更新してください。利用するエージェント CLI や Cloudflare Tunnel の認証は復元先で設定し直してください。systemd で起動する場合は [harness/deploy](../harness/deploy/) のユニットにある作業フォルダーと実行ファイルのパスを合わせてください。
+別のパスへ復元すると学習設定のプロジェクトルートは復元先に合わせて書き換わります。履歴に記録済みのパスや、外部プロジェクト・ワークスペースのパスは必要に応じて設定画面で更新してください。利用するエージェント CLI や Cloudflare Tunnel の認証は復元先で設定し直してください。systemd で起動する場合は [harness/deploy](../deploy/) のユニットにある作業フォルダーと実行ファイルのパスを合わせてください。
 
 Python の仮想環境、npm の依存パッケージ、ネイティブビルド、学習用キャッシュは再作成します。ベンチマーク用の一時出力、認証トークン、作業フォルダー外のプロジェクトそのものはバックアップの対象外です。
 
@@ -37,7 +37,7 @@ Python の仮想環境、npm の依存パッケージ、ネイティブビルド
 
 ```bash
 uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
-  python scripts/mirror-dataset.py restore /mnt/6tb/dataset \
+  python harness/scripts/mirror-dataset.py restore /mnt/6tb/dataset \
   --revision fbd02e40977d24e80bdce603659c4e27b4c603c4 \
   --cache /mnt/6tb/daraskDSH/.runtime/dataset-downloads
 ```
@@ -48,7 +48,7 @@ uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
 
 ```bash
 uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
-  python scripts/mirror-dataset.py pack /mnt/6tb/dataset .runtime/dataset-stage
+  python harness/scripts/mirror-dataset.py pack /mnt/6tb/dataset .runtime/dataset-stage
 uv run --no-project --python 3.12 --with huggingface-hub==0.36.2 \
-  python scripts/mirror-dataset.py push .runtime/dataset-stage
+  python harness/scripts/mirror-dataset.py push .runtime/dataset-stage
 ```
