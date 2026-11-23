@@ -74,6 +74,36 @@ Harness の保存先は標準で `~/.local/state/darask-dsh` です。設定済�
 
 「設定 → スキル・指示ファイル」で、DSH 全体または登録済みのワークスペースを選べます。全体の指示は `$DSH_HOME/AGENTS.md`、プロジェクトの指示は選択したフォルダーの `AGENTS.md`、`CLAUDE.md` と各 `.local.md` に保存され、新しい会話で読み込まれます。スキル一覧では名前と説明を確認でき、選択した範囲のスキルを編集・作成できます。プロジェクト用スキルはGitルート（Git管理外なら選択したフォルダー）の `.dsh/skills/` に保存されます。
 
+### 自動化 API（外部エージェント向け）
+
+`/automation/v1` はメール認証を通らない Bearer キー認証のジョブ API です。Muse などマシン外のエージェントが画像・編集・動画ジョブを投げて結果を取り込めます。ジョブは Studio のサイドバーやチャットツールと同じ GPU キューを使います。
+
+前提（一度だけ）：Cloudflare Zero Trust ダッシュボードで `studio.darask.me` の Access アプリケーションに **Bypass** ポリシーを追加し、対象パスを正確に `/automation/v1` に限定します（それ以外のパスは引き続きメール認証です）。次にサーバー上でキーを発行します。
+
+```bash
+node scripts/automation-key.mjs issue    # 新しいキーを発行（一度だけ表示・旧キー無効化）
+node scripts/automation-key.mjs status   # 設定状態の確認
+node scripts/automation-key.mjs revoke   # キー無効化
+```
+
+キーは表示されたその一度だけ保存してください。サーバーには sha256 ハッシュ（`AUTOMATION_API_KEY_HASH`）だけが `~/.config/darask-dsh/studio.env` に残ります。発行・変更後は `systemctl --user restart darask-dsh.service` で反映します。
+
+すべてのリクエストに `Authorization: Bearer <key>` が必要です（JSON）。主なエンドポイント：
+
+- `GET /automation/v1` — 疎通確認 `{ok:true}`
+- `GET /automation/v1/status` — キュー状態 `{queued, running, kinds}`
+- `GET /automation/v1/loras?model=anima|ph3|h3` — 使える LoRA 名一覧
+- `POST /automation/v1/jobs` — ジョブ投入（`kind`: `image`/`edit`/`video`。`model`/`target`、`prompt`、`size` `"WxH"`、`count`、`seed`、`negative`、`steps`、`cfg`、`length`、`mode`、`loras:[{name,strength}]`、`work_name`、`images:[data URI]` は編集・参照用で最大 8 枚）
+- `GET /automation/v1/jobs` / `GET /automation/v1/jobs/<id>` — 一覧・詳細（完了時は `artifacts` にダウンロード URL）
+- `GET /automation/v1/jobs/<id>/artifacts/<index>` — 生成物の本体（PNG/MP4）
+- `DELETE /automation/v1/jobs/<id>` または `POST /automation/v1/jobs/<id>/cancel` — 中止
+
+```bash
+curl -X POST https://studio.darask.me/automation/v1/jobs \
+  -H "Authorization: Bearer dshak_..." -H "Content-Type: application/json" \
+  -d '{"kind":"image","model":"anima","prompt":"1girl, standing, white dress","size":"832x1216","loras":[{"name":"style.safetensors","strength":0.8}],"work_name":"test"}'
+```
+
 **Devin の無料モデル**は「使用するLLMサービス → Devin（無料のみ）」から使えます。設定の「LLMサービス」で Devin がアカウントに対して無料と表示したモデルを選べます。無料の判定は実行時にも行います。通常の「Devin」では有料モデルも選べます。エフォートと速度のバリエーションはモデル名に含まれます。
 
 ```bash

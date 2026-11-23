@@ -231,7 +231,8 @@ export async function enqueueGenerate(body) {
   await mkdir(dir, {recursive:true})
   const request = {kind:'generate', prompt, negative, seed, count:number(body.count, '枚数', 1, 16),
                    steps:number(body.steps, 'step 数', 1, 100), cfg:number(body.cfg, 'CFG', 1, 20, false),
-                   width, height, loras, fp8:body.fp8 !== false, ...(edit || {}), output_dir:join(OUTPUTS, edit ? 'edits' : 'images', 'anima', id)}
+                   width, height, loras, fp8:body.fp8 !== false, ...(edit || {}), output_dir:join(OUTPUTS, edit ? 'edits' : 'images', 'anima', id),
+                   created:Date.now(), ...(body.work_name ? {work_name:body.work_name} : {})}
   await writeFile(join(dir, 'request.json'), JSON.stringify(request, null, 1))
   jobs.push({id, dir, request, state:'queued'})
   await save()
@@ -263,7 +264,8 @@ export async function enqueueVideo(body) {
   await mkdir(dir, {recursive:true})
   const loras = [H3_LORA, ...await chosenLoras(body, 'h3')]  // VBVR first, then the user's (merged in this order)
   const request = {kind:'h3', mode, prompt, seed, width, height, length:number(body.length, 'フレーム数', 5, 1440),
-                   loras, ...inputs, output_dir:join(OUTPUTS, 'videos', id)}
+                   loras, ...inputs, output_dir:join(OUTPUTS, 'videos', id),
+                   created:Date.now(), ...(body.work_name ? {work_name:body.work_name} : {})}
   await writeFile(join(dir, 'request.json'), JSON.stringify(request, null, 1))
   jobs.push({id, dir, request, state:'queued'})
   await save()
@@ -291,7 +293,8 @@ export async function enqueueImage(body) {
   await mkdir(dir, {recursive:true})
   const loras = await chosenLoras(body, 'ph3')
   const request = {kind:'ph3', mode, prompt, seed, count:number(body.count, '枚数', 1, 16), width, height,
-                   ...(images.length ? {images} : {}), ...(loras.length ? {loras} : {}), output_dir:join(OUTPUTS, mode === 'edit' ? 'edits' : 'images', 'p-h3', id)}
+                   ...(images.length ? {images} : {}), ...(loras.length ? {loras} : {}), output_dir:join(OUTPUTS, mode === 'edit' ? 'edits' : 'images', 'p-h3', id),
+                   created:Date.now(), ...(body.work_name ? {work_name:body.work_name} : {})}
   await writeFile(join(dir, 'request.json'), JSON.stringify(request, null, 1))
   jobs.push({id, dir, request, state:'queued'})
   await save()
@@ -466,6 +469,8 @@ async function clearFinished() {
 }
 
 export {cancel as cancelJob}
+
+export {snapshot as jobsSnapshot}
 
 export async function listLoraNames(model = 'anima') {
   return (await listLoras(model)).map(item => item.name)
