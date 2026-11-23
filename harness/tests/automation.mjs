@@ -146,3 +146,32 @@ test('job list / detail / artifact download / cancel', async () => {
   assert.equal(cs, 200)
   assert.deepEqual(calls.at(-1), ['cancel', 'j-done'])
 })
+
+test('training jobs stay invisible and uncancellable', async () => {
+  views['train-1'] = {id:'train-1', request:{model:'anima', folder:'/x'}, state:'running', stage:'training'}
+  const [, list] = await api('/jobs')
+  assert.equal(list.jobs.some(j => j.id === 'train-1'), false)
+  assert.equal((await api('/jobs/train-1'))[0], 404)
+  calls.length = 0
+  assert.equal((await api('/jobs/train-1', {method:'DELETE'}))[0], 404)
+  assert.equal((await api('/jobs/train-1/cancel', {method:'POST'}))[0], 404)
+  assert.equal(calls.length, 0)
+  delete views['train-1']
+})
+
+test('mode validation: video needs images for i2v/ref, ph3 edit/reference needs images', async () => {
+  calls.length = 0; stored.length = 0
+  const uri = 'data:image/png;base64,' + Buffer.from('f').toString('base64')
+  const [s1] = await api('/jobs', {method:'POST', body:{kind:'video', prompt:'x', mode:'ref'}})
+  assert.equal(s1, 400)
+  const [s2] = await api('/jobs', {method:'POST', body:{kind:'video', prompt:'x', images:[uri]}})
+  assert.equal(s2, 400)
+  const [s3] = await api('/jobs', {method:'POST', body:{kind:'video', prompt:'x', mode:'ref', images:[uri]}})
+  assert.equal(s3, 201)
+  assert.deepEqual(calls.at(-1)[1].references, ['tok2.png']) // s2 decoded one upload before failing validation
+  const [s4] = await api('/jobs', {method:'POST', body:{kind:'video', prompt:'x', mode:'i2v', images:[uri, uri]}})
+  assert.equal(s4, 201)
+  assert.deepEqual([calls.at(-1)[1].first, calls.at(-1)[1].last], ['tok3.png', 'tok4.png'])
+  const [s5] = await api('/jobs', {method:'POST', body:{kind:'image', model:'p-h3', prompt:'x', mode:'reference'}})
+  assert.equal(s5, 400)
+})

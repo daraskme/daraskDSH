@@ -20,6 +20,9 @@ async function enqueueWithLoras(model, deps, enqueue) {
 
 const PREFIX = '/automation/v1'
 const KINDS = ['image', 'edit', 'video']
+// Only media-generation jobs are reachable through this API; owner-only LoRA training jobs stay
+// invisible (and cannot be cancelled) even though they share the queue.
+const MEDIA_KINDS = new Set(['generate', 'h3', 'ph3'])
 const MAX_BODY = 320 << 20 // 8 data-URI images at the 20 MB upload cap, base64-expanded
 const TYPES = {'.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.webp':'image/webp', '.mp4':'video/mp4'}
 
@@ -92,9 +95,14 @@ async function createJob(body, deps) {
   const images = await decodeImages(body.images, deps)
   if (kind === 'video') {
     if (model && model !== 'h3') throw Error('kind "video" 只支持 model "h3"')
+    const mode = body.mode || 't2v'
+    if (!['t2v', 'i2v', 'ref'].includes(mode)) throw Error('video 的 mode 是 t2v / i2v / ref')
+    if (images.length && mode === 't2v') throw Error('video 带 images 需要 mode "i2v"（首/末帧）或 "ref"（参照）')
+    if (mode !== 't2v' && !images.length) throw Error('mode "' + mode + '" 需要 images')
+    const inputs = mode === 'i2v' ? {first:images[0], last:images[1]} : mode === 'ref' ? {references:images} : {}
     const [width, height] = size(body.size, [1280, 704])
     const {id} = await enqueueWithLoras('h3', deps, () => deps.enqueueVideo({prompt:body.prompt, width, height,
-      length:body.length ?? 124, seed:body.seed, mode:'t2v', loras:body.loras ?? [], ...workName(body)}))
+      length:body.length ?? 124, seed:body.seed, mode, ...inputs, loras:body.loras ?? [], ...workName(body)}))
     return id
   }
   const ph3 = kind === 'edit' || ['ph3', 'p-h3'].includes(model)
@@ -108,6 +116,7 @@ async function createJob(body, deps) {
       loras:body.loras ?? [], fp8:true, ...workName(body)}))
     return id
   }
+  if (!images.length && ['edit', 'reference'].includes(body.mode)) throw Error('mode "' + body.mode + '" 需要 images（data URI）')
   const mode = kind === 'edit' ? 'edit' : images.length ? (body.mode === 'reference' ? 'reference' : 'edit') : 't2i'
   const [width, height] = size(body.size, mode === 'edit' ? [0, 0] : [2912, 2912])
   const {id} = await enqueueWithLoras('ph3', deps, () => deps.enqueueImage({prompt:body.prompt, mode, images, width, height,
@@ -143,7 +152,7 @@ export function createAutomationHandler(overrides = {}) {
       if (parts[0] === 'jobs' && parts.length === 1) {
         if (req.method === 'GET') {
           const {jobs} = await deps.jobsSnapshot()
-          return send({ok:true, jobs:jobs.map(view => viewOut(view, deps))})
+          return send({ok:true, jobs:jobs.filter(j => MEDIA_KINDS.has(j.request.kind)).map(view => viewOut(view, deps))})
         }
         if (req.method === 'POST') {
           if (req.headers['content-type']?.split(';')[0] !== 'application/json')
@@ -163,20 +172,26 @@ export function createAutomationHandler(overrides = {}) {
       }
       if (parts[0] === 'jobs' && parts.length >= 2) {
         const id = parts[1]
-        if (parts.length === 2 && req.method === 'GET') {
+        const mediaView = async () => {
           const view = await deps.jobView(id)
+          return view && MEDIA_KINDS.has(view.request.kind) ? view : null
+        }
+        if (parts.length === 2 && req.method === 'GET') {
+          const view = await mediaView()
           return view ? send({ok:true, job:viewOut(view, deps)}) : send({ok:false, error:'job not found: ' + id}, 404)
         }
         if (parts.length === 2 && req.method === 'DELETE') {
+          if (!await mediaView()) return send({ok:false, error:'job not found: ' + id}, 404)
           await deps.cancelJob(id)
           return send({ok:true})
         }
         if (parts[2] === 'cancel' && parts.length === 3 && req.method === 'POST') {
+          if (!await mediaView()) return send({ok:false, error:'job not found: ' + id}, 404)
           await deps.cancelJob(id)
           return send({ok:true})
         }
         if (parts[2] === 'artifacts' && parts.length === 4 && req.method === 'GET') {
-          const view = await deps.jobView(id)
+          const view = await mediaView()
           const file = view && deps.jobFiles(view)[Number(parts[3])]
           const data = file && await deps.readFile(file).catch(() => null)
           if (!data) return send({ok:false, error:'artifact not found'}, 404)
