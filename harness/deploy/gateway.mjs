@@ -26,10 +26,15 @@ export function gateway({host,port,verify,cookie}) {
     if (req.headers.host?.toLowerCase() !== host || !req.url?.startsWith('/') || req.url.startsWith('//')) throw Error('host')
     if (req.headers.origin && req.headers.origin !== origin) throw Error('origin')
     if (req.headers['sec-fetch-site']==='cross-site' && (upgrade || !['HEAD','GET'].includes(req.method))) throw Error('origin')
-    const expires = await verify(req.headers['cf-access-jwt-assertion'])
+    // /automation/v1 is the external job API: Cloudflare Access bypass on that exact path replaces
+    // the email login with the Bearer-key check the Harness route itself performs. Match on the
+    // normalized pathname — '/automation/v1/../api/...' must not skip Access.
+    const normalized = new URL(req.url, 'https://' + host).pathname
+    const automation = normalized === '/automation/v1' || normalized.startsWith('/automation/v1/')
+    const expires = automation ? Math.floor(Date.now() / 1000) + 86400 : await verify(req.headers['cf-access-jwt-assertion'])
     const headers = {host, cookie:await cookie()}
     for (const [name,value] of Object.entries(req.headers)) {
-      if (/^(accept($|-)|content-(?:type|length|range|encoding)$|range$|if-(?:range|modified-since|none-match)$|user-agent$|origin$|sec-(?:fetch-|websocket-)|last-event-id$|x-dsh-)/i.test(name)) headers[name] = value
+      if (/^(accept($|-)|authorization$|content-(?:type|length|range|encoding)$|range$|if-(?:range|modified-since|none-match)$|user-agent$|origin$|sec-(?:fetch-|websocket-)|last-event-id$|x-dsh-)/i.test(name)) headers[name] = value
     }
     if (upgrade) {headers.upgrade='websocket';headers.connection='Upgrade'}
     return {expires,options:{hostname:'127.0.0.1',port,path:req.url,method:req.method,headers}}
