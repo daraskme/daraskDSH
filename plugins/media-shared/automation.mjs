@@ -99,6 +99,7 @@ async function createJob(body, deps) {
     if (!['t2v', 'i2v', 'ref'].includes(mode)) throw Error('video 的 mode 是 t2v / i2v / ref')
     if (images.length && mode === 't2v') throw Error('video 带 images 需要 mode "i2v"（首/末帧）或 "ref"（参照）')
     if (mode !== 't2v' && !images.length) throw Error('mode "' + mode + '" 需要 images')
+    if (mode === 'i2v' && images.length > 2) throw Error('mode "i2v" 只用 first/last 两帧，images 最多 2 张')
     const inputs = mode === 'i2v' ? {first:images[0], last:images[1]} : mode === 'ref' ? {references:images} : {}
     const [width, height] = size(body.size, [1280, 704])
     const {id} = await enqueueWithLoras('h3', deps, () => deps.enqueueVideo({prompt:body.prompt, width, height,

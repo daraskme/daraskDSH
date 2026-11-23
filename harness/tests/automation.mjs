@@ -174,4 +174,6 @@ test('mode validation: video needs images for i2v/ref, ph3 edit/reference needs 
   assert.deepEqual([calls.at(-1)[1].first, calls.at(-1)[1].last], ['tok3.png', 'tok4.png'])
   const [s5] = await api('/jobs', {method:'POST', body:{kind:'image', model:'p-h3', prompt:'x', mode:'reference'}})
   assert.equal(s5, 400)
+  const [s6] = await api('/jobs', {method:'POST', body:{kind:'video', prompt:'x', mode:'i2v', images:[uri, uri, uri]}})
+  assert.equal(s6, 400)
 })
