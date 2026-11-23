@@ -363,7 +363,15 @@ async function load() {
   return loaded
 }
 
-async function save() {
+// Saves serialize through a chain: two overlapping writes would race on the same QUEUE+'.tmp'.
+let saving = Promise.resolve()
+function save() {
+  const next = saving.then(saveNow, saveNow)
+  saving = next.catch(() => {})
+  return next
+}
+
+async function saveNow() {
   const finished = jobs.filter(job => !['queued', 'running'].includes(job.state))
   const drop = new Set(finished.slice(0, Math.max(0, finished.length - KEEP_FINISHED)))
   jobs = jobs.filter(job => !drop.has(job))
